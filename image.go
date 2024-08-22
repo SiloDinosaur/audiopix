@@ -17,7 +17,7 @@ import (
 func LoadImage(path string) ([]ImageColor, error) {
 	var img *image.RGBA
 	var err error
-	if strings.HasPrefix(path, "http") {
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
 		img, err = loadURL(path)
 	} else {
 		img, err = loadRGBA(path)
