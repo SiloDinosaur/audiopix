@@ -78,12 +78,76 @@ func TestExtractAndResampleAudioFeatures(t *testing.T) {
 	if len(resampled) != 17 {
 		t.Fatalf("got %d resampled features; want 17", len(resampled))
 	}
+	for _, f := range resampled {
+		if !finiteFeature(f) {
+			t.Fatalf("resampled feature contains non-finite values: %+v", f)
+		}
+	}
+}
+
+func TestExtractAudioFeatureBandsAndRolloff(t *testing.T) {
+	lowAudio := AudioData{Samples: sineSamples(4096, 44100, 110), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+	highAudio := AudioData{Samples: sineSamples(4096, 44100, 8000), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+
+	low, err := ExtractAudioFeatures(lowAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	if err != nil {
+		t.Fatalf("ExtractAudioFeatures low returned error: %v", err)
+	}
+	high, err := ExtractAudioFeatures(highAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	if err != nil {
+		t.Fatalf("ExtractAudioFeatures high returned error: %v", err)
+	}
+	lf, hf := low[0], high[0]
+	if lf.LowEnergy <= lf.HighEnergy {
+		t.Fatalf("low sine should have stronger low energy than high energy: %+v", lf)
+	}
+	if lf.BassEnergy != lf.LowEnergy {
+		t.Fatalf("BassEnergy should alias LowEnergy: bass=%v low=%v", lf.BassEnergy, lf.LowEnergy)
+	}
+	if hf.Centroid <= lf.Centroid {
+		t.Fatalf("high sine centroid should exceed low sine centroid: low=%v high=%v", lf.Centroid, hf.Centroid)
+	}
+	if hf.Rolloff <= lf.Rolloff {
+		t.Fatalf("high sine rolloff should exceed low sine rolloff: low=%v high=%v", lf.Rolloff, hf.Rolloff)
+	}
+}
+
+func TestExtractAudioFeatureZeroCrossingRate(t *testing.T) {
+	audio := AudioData{Samples: alternatingSamples(64), SampleRate: 8000, Channels: 1, SourceFrames: 64}
+	features, err := ExtractAudioFeatures(audio, AudioOptions{FFTSize: 64, HopSize: 64})
+	if err != nil {
+		t.Fatalf("ExtractAudioFeatures returned error: %v", err)
+	}
+	if features[0].ZeroCrossingRate < 0.9 {
+		t.Fatalf("alternating waveform should have high zero-crossing rate: %+v", features[0])
+	}
+}
+
+func TestExtractAudioFeatureFlatnessAndBandwidth(t *testing.T) {
+	toneAudio := AudioData{Samples: sineSamples(4096, 44100, 440), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+	noiseAudio := AudioData{Samples: noiseSamples(4096), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+
+	tone, err := ExtractAudioFeatures(toneAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	if err != nil {
+		t.Fatalf("ExtractAudioFeatures tone returned error: %v", err)
+	}
+	noise, err := ExtractAudioFeatures(noiseAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	if err != nil {
+		t.Fatalf("ExtractAudioFeatures noise returned error: %v", err)
+	}
+	tf, nf := tone[0], noise[0]
+	if nf.Flatness <= tf.Flatness {
+		t.Fatalf("noise should have higher flatness than tone: tone=%v noise=%v", tf.Flatness, nf.Flatness)
+	}
+	if nf.Bandwidth <= tf.Bandwidth {
+		t.Fatalf("noise should have broader bandwidth than tone: tone=%v noise=%v", tf.Bandwidth, nf.Bandwidth)
+	}
 }
 
 func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
 	brightness, err := FeaturesToImageColors([]AudioFeatures{
-		{RMS: 0, Flatness: 0.1, BassEnergy: 1},
-		{RMS: 1, Flatness: 0.1, BassEnergy: 1},
+		{RMS: 0, Flatness: 0.1, LowEnergy: 1, BassEnergy: 1},
+		{RMS: 1, Flatness: 0.1, LowEnergy: 1, BassEnergy: 1},
 	}, 2, 1, PaletteNatural)
 	if err != nil {
 		t.Fatalf("FeaturesToImageColors returned error: %v", err)
@@ -93,22 +157,37 @@ func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
 	}
 
 	hues, err := FeaturesToImageColors([]AudioFeatures{
-		{RMS: 1, Flatness: 0.1, BassEnergy: 10},
-		{RMS: 1, Flatness: 0.1, MidEnergy: 10},
-		{RMS: 1, Flatness: 0.1, HighEnergy: 10},
-	}, 3, 1, PaletteNatural)
+		{RMS: 1, Flatness: 0.1, LowEnergy: 10, BassEnergy: 10, Centroid: 110},
+		{RMS: 1, Flatness: 0.1, LowMidEnergy: 10, Centroid: 500},
+		{RMS: 1, Flatness: 0.1, MidEnergy: 10, Centroid: 2000},
+		{RMS: 1, Flatness: 0.1, HighEnergy: 10, Centroid: 8000},
+	}, 4, 1, PaletteNatural)
 	if err != nil {
 		t.Fatalf("FeaturesToImageColors returned error: %v", err)
 	}
-	bass, mid, high := hues[0], hues[1], hues[2]
+	bass, lowMid, mid, high := hues[0], hues[1], hues[2], hues[3]
 	if !(bass.R > bass.G && bass.B > bass.G) {
 		t.Fatalf("bass color should be red/purple biased: %+v", bass)
+	}
+	if !(lowMid.R > lowMid.B && lowMid.G > lowMid.B) {
+		t.Fatalf("low-mid color should be orange/amber biased: %+v", lowMid)
 	}
 	if !(mid.G > mid.R && mid.G > mid.B) {
 		t.Fatalf("mid color should be green biased: %+v", mid)
 	}
 	if !(high.B > high.R && high.G > high.R) {
 		t.Fatalf("high color should be cyan/blue biased: %+v", high)
+	}
+
+	saturation, err := FeaturesToImageColors([]AudioFeatures{
+		{RMS: 1, Flatness: 0.05, LowEnergy: 1, BassEnergy: 1, Bandwidth: 20, ZeroCrossingRate: 0.01},
+		{RMS: 1, Flatness: 0.95, LowEnergy: 1, BassEnergy: 1, Bandwidth: 2000, ZeroCrossingRate: 0.8},
+	}, 2, 1, PaletteNatural)
+	if err != nil {
+		t.Fatalf("FeaturesToImageColors saturation returned error: %v", err)
+	}
+	if rgbSaturation(saturation[1]) >= rgbSaturation(saturation[0]) {
+		t.Fatalf("noisy/flat frame should be less saturated: tonal=%+v noisy=%+v", saturation[0], saturation[1])
 	}
 }
 
@@ -235,6 +314,28 @@ func sineSamples(n, sampleRate int, freq float64) []float64 {
 	return samples
 }
 
+func alternatingSamples(n int) []float64 {
+	samples := make([]float64, n)
+	for i := range samples {
+		if i%2 == 0 {
+			samples[i] = 1
+		} else {
+			samples[i] = -1
+		}
+	}
+	return samples
+}
+
+func noiseSamples(n int) []float64 {
+	samples := make([]float64, n)
+	state := uint32(1)
+	for i := range samples {
+		state = state*1664525 + 1013904223
+		samples[i] = 2*(float64(state)/float64(^uint32(0))) - 1
+	}
+	return samples
+}
+
 func pcmFromFloat(samples []float64) []int16 {
 	ret := make([]int16, len(samples))
 	for i, s := range samples {
@@ -244,7 +345,20 @@ func pcmFromFloat(samples []float64) []int16 {
 }
 
 func finiteFeature(f AudioFeatures) bool {
-	vals := []float64{f.Time, f.RMS, f.Centroid, f.Flatness, f.BassEnergy, f.MidEnergy, f.HighEnergy}
+	vals := []float64{
+		f.Time,
+		f.RMS,
+		f.Centroid,
+		f.Bandwidth,
+		f.Rolloff,
+		f.ZeroCrossingRate,
+		f.Flatness,
+		f.LowEnergy,
+		f.LowMidEnergy,
+		f.BassEnergy,
+		f.MidEnergy,
+		f.HighEnergy,
+	}
 	for _, v := range vals {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return false
@@ -255,4 +369,30 @@ func finiteFeature(f AudioFeatures) bool {
 
 func colorSum(c ImageColor) int {
 	return int(c.R) + int(c.G) + int(c.B)
+}
+
+func rgbSaturation(c ImageColor) int {
+	minV := minInt(int(c.R), int(c.G), int(c.B))
+	maxV := maxInt(int(c.R), int(c.G), int(c.B))
+	return maxV - minV
+}
+
+func minInt(vals ...int) int {
+	ret := vals[0]
+	for _, v := range vals[1:] {
+		if v < ret {
+			ret = v
+		}
+	}
+	return ret
+}
+
+func maxInt(vals ...int) int {
+	ret := vals[0]
+	for _, v := range vals[1:] {
+		if v > ret {
+			ret = v
+		}
+	}
+	return ret
 }

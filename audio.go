@@ -35,13 +35,18 @@ type AudioData struct {
 }
 
 type AudioFeatures struct {
-	Time       float64
-	RMS        float64
-	Centroid   float64
-	Flatness   float64
-	BassEnergy float64
-	MidEnergy  float64
-	HighEnergy float64
+	Time             float64
+	RMS              float64
+	Centroid         float64
+	Bandwidth        float64
+	Rolloff          float64
+	ZeroCrossingRate float64
+	Flatness         float64
+	LowEnergy        float64
+	LowMidEnergy     float64
+	BassEnergy       float64
+	MidEnergy        float64
+	HighEnergy       float64
 }
 
 func (opts AudioOptions) withDefaults(width, height int) AudioOptions {
@@ -212,16 +217,29 @@ func ExtractAudioFeatures(audio AudioData, opts AudioOptions) ([]AudioFeatures, 
 		start := frame * hopSize
 		buf := make([]complex128, frameSize)
 		sumSq := 0.0
+		crossings := 0
+		prevSign := 0
 		for i := 0; i < frameSize; i++ {
 			s := 0.0
 			if start+i < nSamples {
 				s = monoSampleAt(audio, start+i)
 			}
 			sumSq += s * s
+			sign := sampleSign(s)
+			if sign != 0 {
+				if prevSign != 0 && sign != prevSign {
+					crossings++
+				}
+				prevSign = sign
+			}
 			buf[i] = complex(s*window[i], 0)
 		}
 		fft(buf)
-		features[frame] = spectrumFeatures(buf, audio.SampleRate, start, sumSq, frameSize)
+		zcr := 0.0
+		if frameSize > 1 {
+			zcr = float64(crossings) / float64(frameSize-1)
+		}
+		features[frame] = spectrumFeatures(buf, audio.SampleRate, start, sumSq, frameSize, zcr)
 	}
 	return features, nil
 }
@@ -273,34 +291,49 @@ func FeaturesToImageColors(features []AudioFeatures, width, height int, palette 
 
 	rms := values(features, func(f AudioFeatures) float64 { return f.RMS })
 	flatness := values(features, func(f AudioFeatures) float64 { return f.Flatness })
-	bass := values(features, func(f AudioFeatures) float64 { return f.BassEnergy })
+	bandwidth := values(features, func(f AudioFeatures) float64 { return f.Bandwidth })
+	rolloff := values(features, func(f AudioFeatures) float64 { return f.Rolloff })
+	zcr := values(features, func(f AudioFeatures) float64 { return f.ZeroCrossingRate })
+	low := values(features, featureLowEnergy)
+	lowMid := values(features, func(f AudioFeatures) float64 { return f.LowMidEnergy })
 	mid := values(features, func(f AudioFeatures) float64 { return f.MidEnergy })
 	high := values(features, func(f AudioFeatures) float64 { return f.HighEnergy })
 	rmsNorm := normalizer(rms)
 	flatNorm := normalizer(flatness)
-	bassNorm := normalizer(bass)
+	bandwidthNorm := normalizer(bandwidth)
+	rolloffNorm := normalizer(rolloff)
+	zcrNorm := normalizer(zcr)
+	lowNorm := normalizer(low)
+	lowMidNorm := normalizer(lowMid)
 	midNorm := normalizer(mid)
 	highNorm := normalizer(high)
 
 	colors := make([]ImageColor, width*height)
 	for i, f := range features {
 		x, y := i%width, i/width
-		b := bassNorm(f.BassEnergy)
+		l := lowNorm(featureLowEnergy(f))
+		lm := lowMidNorm(f.LowMidEnergy)
 		m := midNorm(f.MidEnergy)
 		h := highNorm(f.HighEnergy)
-		total := b + m + h
-		hue := 0.0
-		if total > 1e-12 {
-			hue = (310*b + 95*m + 205*h) / total
-		} else {
-			centroid := clamp(f.Centroid/16000, 0, 1)
-			hue = 260 - 200*centroid
-			if hue < 0 {
-				hue += 360
-			}
+		bandHue, ok := weightedHue([]hueWeight{
+			{hue: 285, weight: l},
+			{hue: 25, weight: lm},
+			{hue: 95, weight: m},
+			{hue: 205, weight: h},
+		})
+		centroid := clamp(f.Centroid/16000, 0, 1)
+		centroidHue := 25 + 180*centroid
+		hue := centroidHue
+		if ok {
+			hue, _ = weightedHue([]hueWeight{
+				{hue: bandHue, weight: 0.78},
+				{hue: centroidHue, weight: 0.22},
+			})
 		}
-		saturation := clamp(0.35+0.65*(1-flatNorm(f.Flatness)), 0, 1)
-		value := clamp(0.12+0.88*rmsNorm(f.RMS), 0, 1)
+		noise := 0.55*flatNorm(f.Flatness) + 0.25*zcrNorm(f.ZeroCrossingRate) + 0.20*bandwidthNorm(f.Bandwidth)
+		saturation := clamp(0.92-0.72*noise, 0.12, 1)
+		sparkle := 0.65*highNorm(f.HighEnergy) + 0.35*rolloffNorm(f.Rolloff)
+		value := clamp(0.08+0.84*rmsNorm(f.RMS)+0.08*sparkle, 0, 1)
 		r, g, bb := hsvToRGB(hue, saturation, value)
 		colors[i] = ImageColor{x, y, r, g, bb}
 	}
@@ -360,6 +393,17 @@ func monoSampleAt(audio AudioData, frame int) float64 {
 	return sum / float64(audio.Channels)
 }
 
+func sampleSign(v float64) int {
+	switch {
+	case v > 0:
+		return 1
+	case v < 0:
+		return -1
+	default:
+		return 0
+	}
+}
+
 func decodeWAVSample(b []byte, format uint16, bits int) float64 {
 	if format == 3 {
 		if bits == 32 {
@@ -397,11 +441,14 @@ func hannWindow(n int) []float64 {
 	return w
 }
 
-func spectrumFeatures(buf []complex128, sampleRate, start int, sumSq float64, frameSize int) AudioFeatures {
+func spectrumFeatures(buf []complex128, sampleRate, start int, sumSq float64, frameSize int, zcr float64) AudioFeatures {
 	half := len(buf) / 2
-	sumMag, sumPower, weightedFreq := 0.0, 0.0, 0.0
+	sumMag, sumPower, weightedFreq, weightedFreqSq := 0.0, 0.0, 0.0, 0.0
 	logPower := 0.0
-	bass, mid, high := 0.0, 0.0, 0.0
+	low, lowMid, mid, high := 0.0, 0.0, 0.0, 0.0
+	rolloff := 0.0
+	rolloffFound := false
+	cumulativePower := 0.0
 	const eps = 1e-12
 	for bin := 1; bin <= half; bin++ {
 		re, im := real(buf[bin]), imag(buf[bin])
@@ -411,32 +458,55 @@ func spectrumFeatures(buf []complex128, sampleRate, start int, sumSq float64, fr
 		sumMag += mag
 		sumPower += power
 		weightedFreq += freq * mag
+		weightedFreqSq += freq * freq * mag
 		logPower += math.Log(power + eps)
 		switch {
 		case freq >= 20 && freq < 250:
-			bass += power
-		case freq >= 250 && freq < 4000:
+			low += power
+		case freq >= 250 && freq < 1000:
+			lowMid += power
+		case freq >= 1000 && freq < 4000:
 			mid += power
 		case freq >= 4000 && freq <= 16000:
 			high += power
 		}
 	}
+	rolloffTarget := 0.85 * sumPower
+	for bin := 1; bin <= half; bin++ {
+		re, im := real(buf[bin]), imag(buf[bin])
+		power := re*re + im*im
+		cumulativePower += power
+		if !rolloffFound && cumulativePower >= rolloffTarget && sumPower > eps {
+			rolloff = float64(bin*sampleRate) / float64(len(buf))
+			rolloffFound = true
+		}
+	}
 	centroid := 0.0
+	bandwidth := 0.0
 	if sumMag > eps {
 		centroid = weightedFreq / sumMag
+		variance := weightedFreqSq/sumMag - centroid*centroid
+		if variance > 0 {
+			bandwidth = math.Sqrt(variance)
+		}
 	}
 	flatness := 0.0
 	if half > 0 && sumPower > eps {
 		flatness = math.Exp(logPower/float64(half)) / (sumPower / float64(half))
 	}
 	return AudioFeatures{
-		Time:       float64(start) / float64(sampleRate),
-		RMS:        math.Sqrt(sumSq / float64(frameSize)),
-		Centroid:   centroid,
-		Flatness:   clamp(flatness, 0, 1),
-		BassEnergy: bass,
-		MidEnergy:  mid,
-		HighEnergy: high,
+		Time:             float64(start) / float64(sampleRate),
+		RMS:              math.Sqrt(sumSq / float64(frameSize)),
+		Centroid:         centroid,
+		Bandwidth:        bandwidth,
+		Rolloff:          rolloff,
+		ZeroCrossingRate: clamp(zcr, 0, 1),
+		Flatness:         clamp(flatness, 0, 1),
+		LowEnergy:        low,
+		LowMidEnergy:     lowMid,
+		BassEnergy:       low,
+		MidEnergy:        mid,
+		HighEnergy:       high,
 	}
 }
 
@@ -471,13 +541,18 @@ func fft(a []complex128) {
 
 func lerpFeature(a, b AudioFeatures, t float64) AudioFeatures {
 	return AudioFeatures{
-		Time:       lerp(a.Time, b.Time, t),
-		RMS:        lerp(a.RMS, b.RMS, t),
-		Centroid:   lerp(a.Centroid, b.Centroid, t),
-		Flatness:   lerp(a.Flatness, b.Flatness, t),
-		BassEnergy: lerp(a.BassEnergy, b.BassEnergy, t),
-		MidEnergy:  lerp(a.MidEnergy, b.MidEnergy, t),
-		HighEnergy: lerp(a.HighEnergy, b.HighEnergy, t),
+		Time:             lerp(a.Time, b.Time, t),
+		RMS:              lerp(a.RMS, b.RMS, t),
+		Centroid:         lerp(a.Centroid, b.Centroid, t),
+		Bandwidth:        lerp(a.Bandwidth, b.Bandwidth, t),
+		Rolloff:          lerp(a.Rolloff, b.Rolloff, t),
+		ZeroCrossingRate: lerp(a.ZeroCrossingRate, b.ZeroCrossingRate, t),
+		Flatness:         lerp(a.Flatness, b.Flatness, t),
+		LowEnergy:        lerp(a.LowEnergy, b.LowEnergy, t),
+		LowMidEnergy:     lerp(a.LowMidEnergy, b.LowMidEnergy, t),
+		BassEnergy:       lerp(a.BassEnergy, b.BassEnergy, t),
+		MidEnergy:        lerp(a.MidEnergy, b.MidEnergy, t),
+		HighEnergy:       lerp(a.HighEnergy, b.HighEnergy, t),
 	}
 }
 
@@ -516,6 +591,38 @@ func normalizer(vals []float64) func(float64) float64 {
 		}
 		return clamp((x-lo)/(hi-lo), 0, 1)
 	}
+}
+
+func featureLowEnergy(f AudioFeatures) float64 {
+	if f.LowEnergy != 0 {
+		return f.LowEnergy
+	}
+	return f.BassEnergy
+}
+
+type hueWeight struct {
+	hue    float64
+	weight float64
+}
+
+func weightedHue(weights []hueWeight) (float64, bool) {
+	x, y := 0.0, 0.0
+	for _, hw := range weights {
+		if hw.weight <= 0 {
+			continue
+		}
+		rad := hw.hue * math.Pi / 180
+		x += math.Cos(rad) * hw.weight
+		y += math.Sin(rad) * hw.weight
+	}
+	if math.Abs(x)+math.Abs(y) < 1e-12 {
+		return 0, false
+	}
+	hue := math.Atan2(y, x) * 180 / math.Pi
+	if hue < 0 {
+		hue += 360
+	}
+	return hue, true
 }
 
 func percentile(sorted []float64, p float64) float64 {

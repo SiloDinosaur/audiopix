@@ -42,8 +42,12 @@ Audio-specific flags:
 
 `-audio-offset` and `-audio-duration` accept Go duration strings like `30s`,
 `1m30s`, or plain seconds like `90`. A duration of `0s` uses the rest of the
-file. The first audio palette is `natural`, which maps bass/mid/high energy to
-hue, spectral flatness to saturation, and RMS loudness to brightness.
+file. The first audio palette is `natural`, which maps sub/bass (20-250 Hz),
+low-mid (250-1000 Hz), mid/high-mid (1000-4000 Hz), and air (4000-16000 Hz)
+energy to hue, spectral flatness, bandwidth, and zero-crossing rate to
+saturation, and RMS loudness plus treble sparkle to brightness. Each frame also
+tracks spectral centroid and 85% rolloff for brightness and high-frequency
+character.
 
 WAV support is intentionally modest in the first version: local RIFF/WAVE files
 with PCM integer samples or IEEE float samples are supported, mono is used by
