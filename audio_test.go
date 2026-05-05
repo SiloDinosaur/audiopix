@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -243,23 +244,140 @@ func TestLoadSourceImageMatchesLoadImage(t *testing.T) {
 	}
 }
 
-func TestCLIWAVInputGeneratesPNG(t *testing.T) {
-	wavPath := writeTempWAV(t, 8000, 1, pcmFromFloat(sineSamples(128, 8000, 440)))
-	outPath := filepath.Join(t.TempDir(), "out.png")
-	cmd := exec.Command("go", "run", "./cmd/pix",
-		"-in", wavPath,
-		"-width", "8",
-		"-height", "8",
-		"-out", outPath,
-		"-audio-fft-size", "16",
-		"-audio-hop-size", "8",
-		"-random-seed", "1",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("pix wav command failed: %v\n%s", err, output)
+func TestCLIStandardSwitchesGeneratePNG(t *testing.T) {
+	tests := []struct {
+		name string
+		args func(wavPath, outPath string) []string
+	}{
+		{
+			name: "short input output width height variations",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"-i", wavPath,
+					"-w", "8",
+					"-H", "8",
+					"-o", outPath,
+					"-v", "1",
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+				}
+			},
+		},
+		{
+			name: "long input output width height variations",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--variations", "1",
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+				}
+			},
+		},
+		{
+			name: "negative compression value",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+					"--compress", "-2",
+				}
+			},
+		},
+		{
+			name: "negative compression value with equals",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+					"--compress=-2",
+				}
+			},
+		},
 	}
-	f, err := os.Open(outPath)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wavPath := writeTempWAV(t, 8000, 1, pcmFromFloat(sineSamples(128, 8000, 440)))
+			outPath := filepath.Join(t.TempDir(), "out.png")
+			output, err := runPix(tt.args(wavPath, outPath)...)
+			if err != nil {
+				t.Fatalf("pix wav command failed: %v\n%s", err, output)
+			}
+			assertPNGSize(t, outPath, 8, 8)
+		})
+	}
+}
+
+func TestCLIRejectsOldSingleDashLongFlags(t *testing.T) {
+	tests := []struct {
+		arg       string
+		canonical string
+	}{
+		{arg: "-in", canonical: "--input"},
+		{arg: "-out", canonical: "--output"},
+		{arg: "-audio-offset", canonical: "--audio-offset"},
+		{arg: "-colorsort", canonical: "--color-sort"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.arg, func(t *testing.T) {
+			output, err := runPix(tt.arg, "value")
+			if err == nil {
+				t.Fatalf("pix accepted old flag %s\n%s", tt.arg, output)
+			}
+			if !strings.Contains(output, "invalid option "+strconvQuote(tt.arg)) || !strings.Contains(output, tt.canonical) {
+				t.Fatalf("rejection output did not explain canonical flag for %s:\n%s", tt.arg, output)
+			}
+		})
+	}
+}
+
+func TestCLIHelpShowsCanonicalSwitches(t *testing.T) {
+	for _, arg := range []string{"-h", "--help"} {
+		t.Run(arg, func(t *testing.T) {
+			output, err := runPix(arg)
+			if err != nil {
+				t.Fatalf("pix help failed: %v\n%s", err, output)
+			}
+			for _, want := range []string{"-i, --input", "-o, --output", "--audio-offset", "--color-sort"} {
+				if !strings.Contains(output, want) {
+					t.Fatalf("help output missing %q:\n%s", want, output)
+				}
+			}
+			for _, old := range []string{"-in", "-out", "-audio-offset", "-colorsort"} {
+				if helpContainsOldFlag(output, old) {
+					t.Fatalf("help output still contains old flag %q:\n%s", old, output)
+				}
+			}
+		})
+	}
+}
+
+func runPix(args ...string) (string, error) {
+	cmd := exec.Command("go", append([]string{"run", "./cmd/pix"}, args...)...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+func assertPNGSize(t *testing.T, path string, width, height int) {
+	t.Helper()
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatalf("opening generated png: %v", err)
 	}
@@ -268,9 +386,22 @@ func TestCLIWAVInputGeneratesPNG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generated output is not a png: %v", err)
 	}
-	if got := img.Bounds().Size(); got.X != 8 || got.Y != 8 {
-		t.Fatalf("generated png size = %v; want 8x8", got)
+	if got := img.Bounds().Size(); got.X != width || got.Y != height {
+		t.Fatalf("generated png size = %v; want %dx%d", got, width, height)
 	}
+}
+
+func helpContainsOldFlag(output, flag string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), flag) {
+			return true
+		}
+	}
+	return false
+}
+
+func strconvQuote(s string) string {
+	return `"` + s + `"`
 }
 
 func wavPCM16(sampleRate, channels int, samples []int16) []byte {
