@@ -1,66 +1,166 @@
 # Pix
 
-Turn photos into abstract art.
+Turn photos and WAV files into abstract, organic pixel art.
 
 ![Road in the Winter Forest by Olga Malamud Pavlovich](img/winter.png)
 
-Install the command-line tool with `go get`:
+Pix samples colors from a source image, sorts them by a mix of image position,
+color similarity, and randomness, then grows a new canvas one neighboring pixel
+at a time. WAV input follows the same placement pipeline after first converting
+audio features into a synthetic source image.
 
-```
-go get -u github.com/yurivish/pix/cmd/pix
+## Install
+
+Install the command-line tool:
+
+```sh
+go install github.com/SiloDinosaur/audiopix@latest
 ```
 
-Run it like so:
+Or run it from this repository:
 
+```sh
+go run ./cmd/pix -in picture.jpg
 ```
+
+## Quick Start
+
+Generate a default 300x300 PNG from an image:
+
+```sh
 pix -in picture.jpg
 ```
 
-WAV files can be used as an input source too:
+Choose a size and output path:
 
+```sh
+pix -in picture.jpg -width 1200 -height 800 -out picture.pix.png
 ```
+
+Use a WAV file as the color source:
+
+```sh
 pix -in song.wav -width 800 -height 600 -out song.png
 ```
 
-For WAV input, pix decodes the audio, extracts frame-based loudness and
-frequency features, maps those features to a synthetic row-major source image,
-then hands those colors to the normal pix sampling, sorting, and placement
-pipeline. The placement engine is unchanged, so existing flags like
-`-colorsort`, `-random`, `-reverse`, `-seeds`, `-sweep`, and `-variations`
-still apply.
+Generate a family of variations:
 
-Audio-specific flags:
-
-```
--audio-palette natural
--audio-offset 30s
--audio-duration 2m
--audio-mono=true
--audio-fft-size 2048
--audio-hop-size 512
+```sh
+pix -in picture.jpg -out study.png -variations 8
 ```
 
-`-audio-offset` and `-audio-duration` accept Go duration strings like `30s`,
-`1m30s`, or plain seconds like `90`. A duration of `0s` uses the rest of the
-file. The first audio palette is `natural`, which maps sub/bass (20-250 Hz),
-low-mid (250-1000 Hz), mid/high-mid (1000-4000 Hz), and air (4000-16000 Hz)
-energy to hue, spectral flatness, bandwidth, and zero-crossing rate to
-saturation, and RMS loudness plus treble sparkle to brightness. Each frame also
-tracks spectral centroid and 85% rolloff for brightness and high-frequency
-character.
+Sweep through preset sort, randomness, reverse, and seed combinations:
 
-WAV support is intentionally modest in the first version: local RIFF/WAVE files
-with PCM integer samples or IEEE float samples are supported, mono is used by
-default, and stereo files are downmixed unless `-audio-mono=false` is set.
-
-Generate multiple outputs by sweeping the parameter space:
-
-```
-pix -in picture.jpg -sweep
+```sh
+pix -in picture.jpg -out sweep.png -sweep
 ```
 
-Pix is capable of generating 8,000×8,000 outputs in around a minute. 
+## How It Works
 
-The pixel-placement process is inherently serial and performs one nearest-neighbor search per output pixel, so the time taken depends significantly on the placement order and color distribution since those affect the size of the dynamic search tree and the shape of the frontier. 
+For image input, Pix reads local `.png`, `.jpg`, and `.jpeg` files. Image URLs
+starting with `http://` or `https://` are also supported when they decode as PNG
+or JPEG.
 
-When the `-sweep` or `-variations` flags are used, variations are generated in parallel.
+For WAV input, Pix decodes the audio, extracts frame-based loudness and
+frequency features, maps those features to a row-major source image, then hands
+those colors to the normal sampling, sorting, and placement pipeline. The
+placement engine is unchanged, so image flags such as `-colorsort`, `-random`,
+`-reverse`, `-seeds`, `-sweep`, and `-variations` all still apply.
+
+The pixel-placement process is inherently serial and performs one
+nearest-neighbor search per output pixel, so render time depends on output size,
+placement order, and color distribution. When `-sweep` or `-variations` is used,
+independent outputs are generated in parallel.
+
+## Output Naming
+
+If `-out` is omitted, Pix writes to `pix.<input-name>.png` in the current
+working directory. For example, `picture.jpg` becomes `pix.picture.png`.
+
+When multiple outputs are generated, the first output uses the requested output
+path and later outputs add numeric suffixes before the extension:
+
+```text
+study.png
+study.2.png
+study.3.png
+```
+
+## Options
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-in <path-or-url>` | required | Input image or WAV file. Local images support `.png`, `.jpg`, and `.jpeg`; WAV input supports local `.wav` files. |
+| `-out <path>` | `pix.<input>.png` | Output PNG path. Multiple outputs add `.2`, `.3`, and so on before the extension. |
+| `-width <int>` | `300` | Output image width in pixels. Must be positive for WAV input. |
+| `-height <int>` | `300` | Output image height in pixels. Must be positive for WAV input. |
+| `-white-percent <0-100>` | `0` | Percentage of the output canvas to leave white by sampling fewer source colors. |
+| `-colorsort <0-100>` | `90` | Sort weighting between source-image proximity and color similarity. Higher values favor color similarity; lower values preserve more source position. |
+| `-random <int>` | `0` | Randomness weight used during similarity sorting. |
+| `-reverse[=true|false]` | `true` | Reverse the sorted color order. Use `-reverse=false` to disable. |
+| `-random-seed <int>` | `0` | Base random seed for reproducible placement. Each variation adds its variation number to this seed. |
+| `-seeds "x y[ x y...]"` | center pixel | One or more seed coordinates for the initial placed pixels. Pass an even number of integers, usually quoted by the shell. |
+| `-variations <int>` | `1` | Number of outputs to generate for each selected parameter set. |
+| `-sweep[=true\|false]` | `false` | Generate a preset parameter sweep, ignoring explicitly supplied `-colorsort`, `-random`, `-reverse`, and `-seeds` values. |
+| `-compress <-3\|-2\|-1\|0>` | `0` | PNG compression level. `0` is default compression, `-1` is no compression, `-2` is best speed, and `-3` is best compression. |
+
+### Audio Options
+
+Audio flags are only used when `-in` points to a `.wav` file.
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-audio-palette <name>` | `natural` | Audio-to-color palette. The available palette is `natural`. |
+| `-audio-offset <duration>` | `0s` | Start offset within the WAV file. Accepts Go duration strings like `30s` or `1m30s`, plus plain seconds like `90`. |
+| `-audio-duration <duration>` | `0s` | Amount of audio to read. Accepts the same format as `-audio-offset`; `0s` uses the rest of the file. |
+| `-audio-mono[=true\|false]` | `true` | Downmix WAV input to mono. Use `-audio-mono=false` to preserve source channels during decoding; feature analysis still mixes channels when reading frames. |
+| `-audio-fft-size <int>` | `2048` | FFT frame size for audio analysis. Must be positive and a power of two. |
+| `-audio-hop-size <int>` | `512` | Hop size between analysis frames. Must be positive and no larger than `-audio-fft-size`. |
+
+The `natural` audio palette maps sub and bass energy, low mids, mids, and air
+energy into hue. Spectral flatness, bandwidth, and zero-crossing rate influence
+saturation, while RMS loudness, high-frequency energy, and 85% spectral rolloff
+influence brightness.
+
+WAV support is intentionally modest: local RIFF/WAVE files with PCM integer
+samples or IEEE float samples are supported. PCM bit depths of 8, 16, 24, and
+32 bits are accepted; float WAV files may be 32-bit or 64-bit.
+
+## Sweep Presets
+
+`-sweep` renders the Cartesian product of these presets:
+
+| Parameter | Values |
+| --- | --- |
+| `-colorsort` | `90`, `10` |
+| `-random` | `0`, `10` |
+| `-reverse` | `true`, `false` |
+| `-seeds` | center, bottom-left, four-point cross |
+
+That produces 24 parameter sets before applying `-variations`.
+
+## Examples
+
+Leave 15% of the canvas white:
+
+```sh
+pix -in picture.jpg -white-percent 15 -out airy.png
+```
+
+Start growth from several seed points:
+
+```sh
+pix -in picture.jpg -seeds "400 300 0 300 799 300" -width 800 -height 600
+```
+
+Render a specific section of a song:
+
+```sh
+pix -in song.wav -audio-offset 45s -audio-duration 90s -width 1024 -height 1024
+```
+
+Favor speed over PNG file size:
+
+```sh
+pix -in picture.jpg -compress -2 -out fast.png
+```
