@@ -35,6 +35,52 @@ func clamp(x, lo, hi float64) float64 {
 	return x
 }
 
+func normalizeHue(h float64) float64 {
+	h = math.Mod(h, 360)
+	if h < 0 {
+		h += 360
+	}
+	return h
+}
+
+// RotateImageColorsHue returns a copy of colors with RGB hue rotated in HSV space.
+func RotateImageColorsHue(colors []ImageColor, degrees float64) []ImageColor {
+	hueShift := normalizeHue(degrees)
+	ret := make([]ImageColor, len(colors))
+	for i, c := range colors {
+		h, s, v := rgbToHSV(c.R, c.G, c.B)
+		r, g, b := hsvToRGB(h+hueShift, s, v)
+		ret[i] = ImageColor{X: c.X, Y: c.Y, R: r, G: g, B: b}
+	}
+	return ret
+}
+
+func rgbToHSV(r, g, b uint8) (float64, float64, float64) {
+	rf, gf, bf := invQuantize(r), invQuantize(g), invQuantize(b)
+	max := math.Max(rf, math.Max(gf, bf))
+	min := math.Min(rf, math.Min(gf, bf))
+	delta := max - min
+
+	h := 0.0
+	switch {
+	case delta == 0:
+		h = 0
+	case max == rf:
+		h = 60 * math.Mod((gf-bf)/delta, 6)
+	case max == gf:
+		h = 60 * ((bf-rf)/delta + 2)
+	default:
+		h = 60 * ((rf-gf)/delta + 4)
+	}
+	h = normalizeHue(h)
+
+	s := 0.0
+	if max > 0 {
+		s = delta / max
+	}
+	return h, s, max
+}
+
 // Minimum and maximum values for OkLab's a and b parameters
 // found by enumerating all 8-bit RGB colors and taking the extrema.
 // The L parameter extent is [0, 1], and doesn't need to be remapped.

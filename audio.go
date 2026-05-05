@@ -639,10 +639,7 @@ func percentile(sorted []float64, p float64) float64 {
 }
 
 func hsvToRGB(h, s, v float64) (uint8, uint8, uint8) {
-	h = math.Mod(h, 360)
-	if h < 0 {
-		h += 360
-	}
+	h = normalizeHue(h)
 	c := v * s
 	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
 	m := v - c

@@ -192,6 +192,38 @@ func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
 	}
 }
 
+func TestRotateImageColorsHue(t *testing.T) {
+	src := []ImageColor{{X: 7, Y: 11, R: 255, G: 0, B: 0}}
+
+	green := RotateImageColorsHue(src, 120)[0]
+	if green.X != 7 || green.Y != 11 || green.R != 0 || green.G != 255 || green.B != 0 {
+		t.Fatalf("red +120 hue = %+v; want green at original coordinates", green)
+	}
+
+	blue := RotateImageColorsHue(src, 240)[0]
+	negativeBlue := RotateImageColorsHue(src, -120)[0]
+	wantBlue := ImageColor{X: 7, Y: 11, R: 0, G: 0, B: 255}
+	if blue != wantBlue {
+		t.Fatalf("red +240 hue = %+v; want %+v", blue, wantBlue)
+	}
+	if negativeBlue != wantBlue {
+		t.Fatalf("red -120 hue = %+v; want %+v", negativeBlue, wantBlue)
+	}
+
+	for _, degrees := range []float64{0, 360, -360, 720} {
+		got := RotateImageColorsHue(src, degrees)[0]
+		if got != src[0] {
+			t.Fatalf("red %+v hue = %+v; want original %+v", degrees, got, src[0])
+		}
+	}
+
+	plus180 := RotateImageColorsHue(src, 180)[0]
+	minus180 := RotateImageColorsHue(src, -180)[0]
+	if plus180 != minus180 {
+		t.Fatalf("red +180 hue = %+v; red -180 hue = %+v; want equal", plus180, minus180)
+	}
+}
+
 func TestBuildImageColorsFromWAVDeterministic(t *testing.T) {
 	path := writeTempWAV(t, 8000, 1, pcmFromFloat(sineSamples(64, 8000, 440)))
 	opts := AudioOptions{Width: 4, Height: 4, Mono: true, FFTSize: 16, HopSize: 8, Palette: PaletteNatural}
@@ -309,6 +341,36 @@ func TestCLIStandardSwitchesGeneratePNG(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "negative hue value",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+					"--hue", "-180",
+				}
+			},
+		},
+		{
+			name: "negative hue value with equals",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+					"--hue=-180",
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -355,7 +417,7 @@ func TestCLIHelpShowsCanonicalSwitches(t *testing.T) {
 			if err != nil {
 				t.Fatalf("pix help failed: %v\n%s", err, output)
 			}
-			for _, want := range []string{"-i, --input", "-o, --output", "--audio-offset", "--color-sort"} {
+			for _, want := range []string{"-i, --input", "-o, --output", "--audio-offset", "--color-sort", "--hue"} {
 				if !strings.Contains(output, want) {
 					t.Fatalf("help output missing %q:\n%s", want, output)
 				}

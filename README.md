@@ -183,6 +183,7 @@ wants to become.
 | Flag | Default | Description |
 | --- | --- | --- |
 | `--white-percent <0-100>` | `0` | Percentage of the output canvas to leave white by sampling fewer source colors. |
+| `--hue <degrees>` | `0` | Rotate loaded source colors in HSV hue space before sampling. Values wrap around 360 degrees, so `360`, `-360`, and `0` are equivalent. |
 | `-v`, `--variations <int>` | `1` | Number of outputs to generate for each selected parameter set. |
 | `-c`, `--compress <-3|-2|-1|0>` | `0` | PNG compression level. `0` is default compression, `-1` is no compression, `-2` is best speed, and `-3` is best compression. |
 

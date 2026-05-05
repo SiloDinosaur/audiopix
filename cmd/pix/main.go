@@ -34,6 +34,7 @@ func main() {
 	flag.IntVar(&height, "H", 300, "height of the output image")
 
 	whitePercent := flag.Int("white-percent", 0, "percentage (0 to 100) determining the area left white on the canvas")
+	hue := flag.Float64("hue", 0, "hue rotation in degrees applied to generated source colors")
 	color := flag.Int("color-sort", 90, "magic parameter (0 to 100) determining sort order. A higher value will give more weight to color similarity, while lower values will better preserve proximity in the source image.")
 	random := flag.Int("random", 0, "randomness weight for similarity sort")
 	reverse := flag.Bool("reverse", true, "reverse sort order")
@@ -143,6 +144,9 @@ func main() {
 	img, err := pix.LoadSource(input, sourceOpts)
 	if err != nil {
 		log.Fatalf("failed to load source: %v", err)
+	}
+	if *hue != 0 {
+		img = pix.RotateImageColorsHue(img, *hue)
 	}
 
 	numVariations := variations
@@ -292,6 +296,7 @@ func flagTakesValue(name string) bool {
 		"width", "w",
 		"height", "H",
 		"white-percent",
+		"hue",
 		"color-sort",
 		"random",
 		"random-seed",
@@ -349,6 +354,7 @@ Audio range:
 
 Output and batches:
       --white-percent <0-100>  Percentage of the canvas to leave white. Default 0.
+      --hue <degrees>          Rotate source colors in HSV hue space. Default 0.
   -v, --variations <int>       Number of outputs per parameter set. Default 1.
   -c, --compress <-3|-2|-1|0>  PNG compression level. Default 0.
 
