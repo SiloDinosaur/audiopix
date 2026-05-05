@@ -1,65 +1,144 @@
 # Audiopix
 
+[![Go](https://img.shields.io/badge/Go-1.17%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
+
 Turn WAV files into abstract, organic pixel art.
 
-Audiopix decodes WAV audio, turns frame-based frequency and loudness features
-into a color field, sorts those colors by a mix of feature position, color
-similarity, and randomness, then grows a new canvas one neighboring pixel at a
-time.
+Audiopix listens to a local WAV file, extracts loudness and frequency features,
+maps those features into a color field, then grows the final image one
+neighboring pixel at a time. The result is part spectrogram, part crystal
+growth, part generative album-art machine.
+
+![Audiopix example output](img/winter.png)
+
+## Contents
+
+- [Features](#features)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Examples](#examples)
+- [How It Works](#how-it-works)
+- [Output Naming](#output-naming)
+- [Options](#options)
+- [Supported WAV Files](#supported-wav-files)
+- [Troubleshooting](#troubleshooting)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Credit](#credit)
+- [License](#license)
+
+## Features
+
+- Generate PNG artwork from WAV audio.
+- Read a full track or render only a selected time range.
+- Choose image size, output path, white space, and variation count.
+- Generate repeatable studies with fixed random seeds.
+- Sweep through preset creative parameters for quick exploration.
+- Use the inherited `pix` image pipeline with PNG/JPG inputs and image URLs.
+- Run locally as a small Go command-line tool.
 
 ## Install
 
-Install the command-line tool:
+Audiopix requires Go 1.17 or newer.
+
+Install from a local checkout:
 
 ```sh
-go install github.com/SiloDinosaur/audiopix@latest
+git clone https://github.com/SiloDinosaur/audiopix.git
+cd audiopix
+go install ./cmd/pix
 ```
 
-Or run it from this repository:
+Or run it directly from this repository:
 
 ```sh
 go run ./cmd/pix -in song.wav
 ```
 
-## Quick Start
-
-Generate a default 300x300 PNG from a WAV file:
+After installation, the command is:
 
 ```sh
 pix -in song.wav
 ```
 
-Choose a size and output path:
+## Quick Start
+
+Generate a default 300x300 PNG:
+
+```sh
+pix -in song.wav
+```
+
+Choose a larger canvas and a specific output file:
 
 ```sh
 pix -in song.wav -width 1200 -height 800 -out song.pix.png
 ```
 
-Generate a family of variations:
+Render a section of a track:
+
+```sh
+pix -in song.wav -audio-offset 45s -audio-duration 90s -out excerpt.png
+```
+
+Make several variations from the same audio:
 
 ```sh
 pix -in song.wav -out study.png -variations 8
 ```
 
-Sweep through preset sort, randomness, reverse, and seed combinations:
+## Examples
+
+Leave 15% of the canvas white:
+
+```sh
+pix -in song.wav -white-percent 15 -out airy.png
+```
+
+Create square cover art:
+
+```sh
+pix -in song.wav -width 1024 -height 1024 -out cover.png
+```
+
+Generate a broad parameter study:
 
 ```sh
 pix -in song.wav -out sweep.png -sweep
 ```
 
+Favor faster PNG writing over smaller file size:
+
+```sh
+pix -in song.wav -compress -2 -out fast.png
+```
+
+Use a source image instead of audio:
+
+```sh
+pix -in source.jpg -out grown.png
+```
+
 ## How It Works
 
-Audiopix reads local `.wav` files, extracts frame-based loudness and frequency
-features, and maps those features to a row-major colorset. From there, the
-crystallization and visualization are handled by the pipeline from
-[yurivish/pix](https://github.com/yurivish/pix). Sort and placement flags such
-as `-colorsort`, `-random`, `-reverse`, `-seeds`, `-sweep`, and `-variations`
-all apply.
+Audiopix reads `.wav` files, crops them if requested, analyzes overlapping FFT
+frames, then resamples the resulting audio features to match the requested image
+size. The default `natural` palette maps low, low-mid, mid, and high-frequency
+energy into hue. Spectral flatness, bandwidth, and zero-crossing rate influence
+saturation, while RMS loudness, high-frequency energy, and 85% spectral rolloff
+influence brightness.
 
-The pixel-placement process is inherently serial and performs one
-nearest-neighbor search per output pixel, so render time depends on output size,
-placement order, and color distribution. When `-sweep` or `-variations` is used,
-independent outputs are generated in parallel.
+From there, Audiopix hands the generated colors to the crystallization pipeline
+from [yurivish/pix](https://github.com/yurivish/pix). Colors are sorted by a mix
+of source position, color similarity, and optional randomness. The canvas starts
+from one or more seed pixels, then grows by repeatedly placing the next color on
+a neighboring empty pixel.
+
+Pixel placement is inherently serial and does one nearest-neighbor search per
+output pixel, so render time depends on output size, placement order, and color
+distribution. When `-sweep` or `-variations` is used, independent outputs are
+generated in parallel.
 
 ## Output Naming
 
@@ -77,43 +156,68 @@ study.3.png
 
 ## Options
 
+Most first experiments only need `-in`, `-out`, `-width`, `-height`,
+`-audio-offset`, `-audio-duration`, and maybe `-variations`. The advanced
+controls are there for deeper tuning once you know what kind of image the audio
+wants to become.
+
+### Essential
+
 | Flag | Default | Description |
 | --- | --- | --- |
-| `-in <path>` | required | Input WAV file. Local `.wav` files are supported. |
+| `-in <path>` | required | Input file. WAV files use the audio pipeline. PNG, JPG, JPEG, and image URLs use the inherited image pipeline. |
 | `-out <path>` | `pix.<input>.png` | Output PNG path. Multiple outputs add `.2`, `.3`, and so on before the extension. |
-| `-width <int>` | `300` | Output image width in pixels. Must be positive. |
-| `-height <int>` | `300` | Output image height in pixels. Must be positive. |
-| `-white-percent <0-100>` | `0` | Percentage of the output canvas to leave white by sampling fewer audio-derived colors. |
-| `-colorsort <0-100>` | `90` | Sort weighting between audio-feature position and color similarity. Higher values favor color similarity; lower values preserve more feature position. |
+| `-width <int>` | `300` | Output image width in pixels for WAV input. Must be positive. |
+| `-height <int>` | `300` | Output image height in pixels for WAV input. Must be positive. |
+
+### Audio Range
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-audio-offset <duration>` | `0s` | Start offset within the WAV file. Accepts Go durations like `30s` or `1m30s`, plus plain seconds like `90`. |
+| `-audio-duration <duration>` | `0s` | Amount of audio to read. Accepts the same format as `-audio-offset`; `0s` uses the rest of the file. |
+
+### Output And Batches
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-white-percent <0-100>` | `0` | Percentage of the output canvas to leave white by sampling fewer source colors. |
+| `-variations <int>` | `1` | Number of outputs to generate for each selected parameter set. |
+| `-compress <-3|-2|-1|0>` | `0` | PNG compression level. `0` is default compression, `-1` is no compression, `-2` is best speed, and `-3` is best compression. |
+
+### Advanced
+
+These options are useful when you are comparing looks, chasing a specific
+texture, or trying to understand how the growth algorithm responds to different
+sort orders and audio analysis windows.
+
+#### Color Sorting And Growth
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-colorsort <0-100>` | `90` | Sort weighting between source position and color similarity. Higher values favor color similarity; lower values preserve more source position. |
 | `-random <int>` | `0` | Randomness weight used during similarity sorting. |
 | `-reverse[=true|false]` | `true` | Reverse the sorted color order. Use `-reverse=false` to disable. |
 | `-random-seed <int>` | `0` | Base random seed for reproducible placement. Each variation adds its variation number to this seed. |
 | `-seeds "x y[ x y...]"` | center pixel | One or more seed coordinates for the initial placed pixels. Pass an even number of integers, usually quoted by the shell. |
-| `-variations <int>` | `1` | Number of outputs to generate for each selected parameter set. |
-| `-sweep[=true\|false]` | `false` | Generate a preset parameter sweep, ignoring explicitly supplied `-colorsort`, `-random`, `-reverse`, and `-seeds` values. |
-| `-compress <-3\|-2\|-1\|0>` | `0` | PNG compression level. `0` is default compression, `-1` is no compression, `-2` is best speed, and `-3` is best compression. |
+| `-sweep[=true|false]` | `false` | Generate a preset parameter sweep, ignoring explicitly supplied `-colorsort`, `-random`, `-reverse`, and `-seeds` values. |
 
-### Audio Options
+Example seed layout:
+
+```sh
+pix -in song.wav -width 800 -height 600 -seeds "400 300 0 300 799 300"
+```
+
+#### FFT And Audio Analysis
 
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-audio-palette <name>` | `natural` | Audio-to-color palette. The available palette is `natural`. |
-| `-audio-offset <duration>` | `0s` | Start offset within the WAV file. Accepts Go duration strings like `30s` or `1m30s`, plus plain seconds like `90`. |
-| `-audio-duration <duration>` | `0s` | Amount of audio to read. Accepts the same format as `-audio-offset`; `0s` uses the rest of the file. |
-| `-audio-mono[=true\|false]` | `true` | Downmix WAV input to mono. Use `-audio-mono=false` to preserve source channels during decoding; feature analysis still mixes channels when reading frames. |
-| `-audio-fft-size <int>` | `2048` | FFT frame size for audio analysis. Must be positive and a power of two. |
-| `-audio-hop-size <int>` | `512` | Hop size between analysis frames. Must be positive and no larger than `-audio-fft-size`. |
+| `-audio-mono[=true|false]` | `true` | Downmix WAV input to mono. Use `-audio-mono=false` to preserve source channels during decoding; feature analysis still mixes channels when reading frames. |
+| `-audio-fft-size <int>` | `2048` | FFT frame size for audio analysis. Must be positive and a power of two. Larger values smooth time and sharpen frequency detail. |
+| `-audio-hop-size <int>` | `512` | Hop size between analysis frames. Must be positive and no larger than `-audio-fft-size`. Smaller values create denser overlapping analysis frames. |
 
-The `natural` audio palette maps sub and bass energy, low mids, mids, and air
-energy into hue. Spectral flatness, bandwidth, and zero-crossing rate influence
-saturation, while RMS loudness, high-frequency energy, and 85% spectral rolloff
-influence brightness.
-
-WAV support is intentionally modest: local RIFF/WAVE files with PCM integer
-samples or IEEE float samples are supported. PCM bit depths of 8, 16, 24, and
-32 bits are accepted; float WAV files may be 32-bit or 64-bit.
-
-## Sweep Presets
+#### Sweep Presets
 
 `-sweep` renders the Cartesian product of these presets:
 
@@ -126,36 +230,64 @@ samples or IEEE float samples are supported. PCM bit depths of 8, 16, 24, and
 
 That produces 24 parameter sets before applying `-variations`.
 
-## Examples
+## Supported WAV Files
 
-Leave 15% of the canvas white:
+WAV support is intentionally modest. Audiopix supports local RIFF/WAVE files
+with PCM integer samples or IEEE float samples.
+
+| Encoding | Supported depths |
+| --- | --- |
+| PCM integer | 8, 16, 24, and 32 bit |
+| IEEE float | 32 and 64 bit |
+
+## Troubleshooting
+
+| Problem | What to try |
+| --- | --- |
+| `please specify an input image or wav file` | Add `-in path/to/file.wav`. |
+| `invalid wav file` | Check that the input is a RIFF/WAVE file, not MP3, AIFF, FLAC, or a renamed file. |
+| `audio fft size must be a power of two` | Use a value like `512`, `1024`, `2048`, or `4096`. |
+| `audio hop size must not exceed fft size` | Lower `-audio-hop-size` or raise `-audio-fft-size`. |
+| Render is slow | Try a smaller `-width` and `-height` while exploring, then render large once the settings feel right. |
+| Output is too dense | Try `-white-percent 10` or `-white-percent 20`. |
+
+## Development
+
+Run the test suite:
 
 ```sh
-pix -in song.wav -white-percent 15 -out airy.png
+go test ./...
 ```
 
-Start growth from several seed points:
+Run the command during development:
 
 ```sh
-pix -in song.wav -seeds "400 300 0 300 799 300" -width 800 -height 600
+go run ./cmd/pix -in song.wav -out test.png
 ```
 
-Render a specific section of a song:
+Useful files:
 
-```sh
-pix -in song.wav -audio-offset 45s -audio-duration 90s -width 1024 -height 1024
-```
+- [`cmd/pix/main.go`](cmd/pix/main.go) contains the CLI flags and render loop.
+- [`audio.go`](audio.go) handles WAV decoding, FFT analysis, and audio-to-color mapping.
+- [`pix.go`](pix.go) runs the placement pipeline.
+- [`image.go`](image.go) loads PNG/JPG sources and image URLs.
 
-Favor speed over PNG file size:
+## Contributing
 
-```sh
-pix -in song.wav -compress -2 -out fast.png
-```
+Issues, experiments, and small focused pull requests are welcome. Good changes
+for this project usually include:
+
+- A short explanation of the visual or behavioral goal.
+- Before/after commands or sample settings.
+- Tests for parser, audio, sorting, or placement behavior when the change is not purely documentation.
 
 ## Credit
 
-Audiopix is solely based on
-[yurivish/pix](https://github.com/yurivish/pix) for the crystallization and
-visualization itself. This repo adds the WAV-to-colorset step: it decodes audio,
-turns frame-based frequency and loudness features into colors, then hands those
-colors to the original pix-style placement pipeline.
+Audiopix is based on [yurivish/pix](https://github.com/yurivish/pix) for the
+crystallization and visualization pipeline. This repository adds the WAV-to-color
+step: it decodes audio, turns frame-based frequency and loudness features into
+colors, then hands those colors to the original pix-style placement algorithm.
+
+## License
+
+MIT. See [LICENSE.md](LICENSE.md).
