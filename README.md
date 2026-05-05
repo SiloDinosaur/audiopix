@@ -2,11 +2,10 @@
 
 Turn WAV files into abstract, organic pixel art.
 
-Audiopix is solely based on
-[yurivish/pix](https://github.com/yurivish/pix) for the crystallization and
-visualization itself. This repo adds the WAV-to-colorset step: it decodes audio,
-turns frame-based frequency and loudness features into colors, then hands those
-colors to the original pix-style placement pipeline.
+Audiopix decodes WAV audio, turns frame-based frequency and loudness features
+into a color field, sorts those colors by a mix of feature position, color
+similarity, and randomness, then grows a new canvas one neighboring pixel at a
+time.
 
 ## Install
 
@@ -152,3 +151,11 @@ Favor speed over PNG file size:
 ```sh
 pix -in song.wav -compress -2 -out fast.png
 ```
+
+## Credit
+
+Audiopix is solely based on
+[yurivish/pix](https://github.com/yurivish/pix) for the crystallization and
+visualization itself. This repo adds the WAV-to-colorset step: it decodes audio,
+turns frame-based frequency and loudness features into colors, then hands those
+colors to the original pix-style placement pipeline.
