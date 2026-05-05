@@ -1,4 +1,10 @@
+MIT License
+
+Original pix portions:
 Copyright (c) 1921-2021 Yuri Vishnevsky
+
+Audiopix modifications:
+Copyright (c) 2026 SiloDinosaur
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
