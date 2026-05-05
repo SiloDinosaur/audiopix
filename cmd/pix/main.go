@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	input := flag.String("in", "", "input image (required!)")
+	input := flag.String("in", "", "input image or wav file (required!)")
 	output := flag.String("out", "", "output image")
 	width := flag.Int("width", 300, "width of the output image")
 	height := flag.Int("height", 300, "height of the output image")
@@ -26,6 +26,12 @@ func main() {
 	sweep := flag.Bool("sweep", false, "sweep across {colorsort, random, reverse, seeds} parameters, ignoring any explicitly set values")
 	seed := flag.Int64("random-seed", 0, "random seed")
 	variations := flag.Int("variations", 1, "number of outputs to generate for each set of input parameters")
+	audioPalette := flag.String("audio-palette", string(pix.PaletteNatural), "audio palette for wav input")
+	audioOffset := flag.String("audio-offset", "0s", "start offset for wav input, as a Go duration or seconds")
+	audioDuration := flag.String("audio-duration", "0s", "duration to read from wav input, as a Go duration or seconds; 0 uses the rest of the file")
+	audioMono := flag.Bool("audio-mono", true, "downmix wav input to mono")
+	audioFFTSize := flag.Int("audio-fft-size", 2048, "fft size for wav analysis")
+	audioHopSize := flag.Int("audio-hop-size", 512, "hop size for wav analysis")
 
 	var compressionLevel png.CompressionLevel
 	flag.Func("compress", "png compression level: https://pkg.go.dev/image/png#CompressionLevel", func(s string) error {
@@ -59,7 +65,7 @@ func main() {
 	flag.Parse()
 
 	if *input == "" {
-		fmt.Println("please specify an input image via the -in flag.")
+		fmt.Println("please specify an input image or wav file via the -in flag.")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -85,12 +91,34 @@ func main() {
 	ext := path.Ext(file)
 	name := file[:len(file)-len(ext)]
 
-	img, err := pix.LoadImage(*input)
+	offset, err := pix.ParseAudioDuration(*audioOffset)
 	if err != nil {
-		log.Fatalf("failed to load image: %v", err)
+		log.Fatalf("failed to parse -audio-offset: %v", err)
+	}
+	duration, err := pix.ParseAudioDuration(*audioDuration)
+	if err != nil {
+		log.Fatalf("failed to parse -audio-duration: %v", err)
 	}
 
 	w, h := *width, *height
+	sourceOpts := pix.SourceOptions{
+		Width:  w,
+		Height: h,
+		Audio: pix.AudioOptions{
+			Width:    w,
+			Height:   h,
+			Offset:   offset,
+			Duration: duration,
+			Mono:     *audioMono,
+			FFTSize:  *audioFFTSize,
+			HopSize:  *audioHopSize,
+			Palette:  pix.AudioPalette(*audioPalette),
+		},
+	}
+	img, err := pix.LoadSource(*input, sourceOpts)
+	if err != nil {
+		log.Fatalf("failed to load source: %v", err)
+	}
 
 	numVariations := *variations
 
