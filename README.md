@@ -10,7 +10,7 @@ maps those features into a color field, then grows the final image one
 neighboring pixel at a time. The result is part spectrogram, part crystal
 growth, part generative album-art machine.
 
-![Audiopix example output](img/winter.png)
+![Audiopix example output](examples/thunderstorm.png)
 
 ## Contents
 
