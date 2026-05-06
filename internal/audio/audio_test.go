@@ -1,10 +1,8 @@
-package pix
+package audio
 
 import (
 	"bytes"
 	"encoding/binary"
-	"image"
-	"image/color"
 	"image/png"
 	"math"
 	"os"
@@ -13,6 +11,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/yurivish/pix/internal/visualization"
 )
 
 func TestDecodeWAVMono16(t *testing.T) {
@@ -61,11 +61,11 @@ func TestDecodeWAVErrors(t *testing.T) {
 	}
 }
 
-func TestExtractAndResampleAudioFeatures(t *testing.T) {
-	audio := AudioData{Samples: sineSamples(128, 8000, 440), SampleRate: 8000, Channels: 1, SourceFrames: 128}
-	features, err := ExtractAudioFeatures(audio, AudioOptions{FFTSize: 64, HopSize: 16})
+func TestExtractAndResampleFeatures(t *testing.T) {
+	audio := Data{Samples: sineSamples(128, 8000, 440), SampleRate: 8000, Channels: 1, SourceFrames: 128}
+	features, err := ExtractFeatures(audio, Options{FFTSize: 64, HopSize: 16})
 	if err != nil {
-		t.Fatalf("ExtractAudioFeatures returned error: %v", err)
+		t.Fatalf("ExtractFeatures returned error: %v", err)
 	}
 	if len(features) == 0 {
 		t.Fatal("expected at least one feature frame")
@@ -75,7 +75,7 @@ func TestExtractAndResampleAudioFeatures(t *testing.T) {
 			t.Fatalf("feature contains non-finite values: %+v", f)
 		}
 	}
-	resampled := ResampleAudioFeatures(features, 17)
+	resampled := ResampleFeatures(features, 17)
 	if len(resampled) != 17 {
 		t.Fatalf("got %d resampled features; want 17", len(resampled))
 	}
@@ -87,16 +87,16 @@ func TestExtractAndResampleAudioFeatures(t *testing.T) {
 }
 
 func TestExtractAudioFeatureBandsAndRolloff(t *testing.T) {
-	lowAudio := AudioData{Samples: sineSamples(4096, 44100, 110), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
-	highAudio := AudioData{Samples: sineSamples(4096, 44100, 8000), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+	lowAudio := Data{Samples: sineSamples(4096, 44100, 110), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+	highAudio := Data{Samples: sineSamples(4096, 44100, 8000), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
 
-	low, err := ExtractAudioFeatures(lowAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	low, err := ExtractFeatures(lowAudio, Options{FFTSize: 4096, HopSize: 4096})
 	if err != nil {
-		t.Fatalf("ExtractAudioFeatures low returned error: %v", err)
+		t.Fatalf("ExtractFeatures low returned error: %v", err)
 	}
-	high, err := ExtractAudioFeatures(highAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	high, err := ExtractFeatures(highAudio, Options{FFTSize: 4096, HopSize: 4096})
 	if err != nil {
-		t.Fatalf("ExtractAudioFeatures high returned error: %v", err)
+		t.Fatalf("ExtractFeatures high returned error: %v", err)
 	}
 	lf, hf := low[0], high[0]
 	if lf.LowEnergy <= lf.HighEnergy {
@@ -114,10 +114,10 @@ func TestExtractAudioFeatureBandsAndRolloff(t *testing.T) {
 }
 
 func TestExtractAudioFeatureZeroCrossingRate(t *testing.T) {
-	audio := AudioData{Samples: alternatingSamples(64), SampleRate: 8000, Channels: 1, SourceFrames: 64}
-	features, err := ExtractAudioFeatures(audio, AudioOptions{FFTSize: 64, HopSize: 64})
+	audio := Data{Samples: alternatingSamples(64), SampleRate: 8000, Channels: 1, SourceFrames: 64}
+	features, err := ExtractFeatures(audio, Options{FFTSize: 64, HopSize: 64})
 	if err != nil {
-		t.Fatalf("ExtractAudioFeatures returned error: %v", err)
+		t.Fatalf("ExtractFeatures returned error: %v", err)
 	}
 	if features[0].ZeroCrossingRate < 0.9 {
 		t.Fatalf("alternating waveform should have high zero-crossing rate: %+v", features[0])
@@ -125,16 +125,16 @@ func TestExtractAudioFeatureZeroCrossingRate(t *testing.T) {
 }
 
 func TestExtractAudioFeatureFlatnessAndBandwidth(t *testing.T) {
-	toneAudio := AudioData{Samples: sineSamples(4096, 44100, 440), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
-	noiseAudio := AudioData{Samples: noiseSamples(4096), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+	toneAudio := Data{Samples: sineSamples(4096, 44100, 440), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
+	noiseAudio := Data{Samples: noiseSamples(4096), SampleRate: 44100, Channels: 1, SourceFrames: 4096}
 
-	tone, err := ExtractAudioFeatures(toneAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	tone, err := ExtractFeatures(toneAudio, Options{FFTSize: 4096, HopSize: 4096})
 	if err != nil {
-		t.Fatalf("ExtractAudioFeatures tone returned error: %v", err)
+		t.Fatalf("ExtractFeatures tone returned error: %v", err)
 	}
-	noise, err := ExtractAudioFeatures(noiseAudio, AudioOptions{FFTSize: 4096, HopSize: 4096})
+	noise, err := ExtractFeatures(noiseAudio, Options{FFTSize: 4096, HopSize: 4096})
 	if err != nil {
-		t.Fatalf("ExtractAudioFeatures noise returned error: %v", err)
+		t.Fatalf("ExtractFeatures noise returned error: %v", err)
 	}
 	tf, nf := tone[0], noise[0]
 	if nf.Flatness <= tf.Flatness {
@@ -146,7 +146,7 @@ func TestExtractAudioFeatureFlatnessAndBandwidth(t *testing.T) {
 }
 
 func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
-	brightness, err := FeaturesToImageColors([]AudioFeatures{
+	brightness, err := FeaturesToImageColors([]Features{
 		{RMS: 0, Flatness: 0.1, LowEnergy: 1, BassEnergy: 1},
 		{RMS: 1, Flatness: 0.1, LowEnergy: 1, BassEnergy: 1},
 	}, 2, 1, PaletteNatural)
@@ -157,7 +157,7 @@ func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
 		t.Fatalf("loud frame should be brighter: quiet=%+v loud=%+v", brightness[0], brightness[1])
 	}
 
-	hues, err := FeaturesToImageColors([]AudioFeatures{
+	hues, err := FeaturesToImageColors([]Features{
 		{RMS: 1, Flatness: 0.1, LowEnergy: 10, BassEnergy: 10, Centroid: 110},
 		{RMS: 1, Flatness: 0.1, LowMidEnergy: 10, Centroid: 500},
 		{RMS: 1, Flatness: 0.1, MidEnergy: 10, Centroid: 2000},
@@ -180,7 +180,7 @@ func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
 		t.Fatalf("high color should be cyan/blue biased: %+v", high)
 	}
 
-	saturation, err := FeaturesToImageColors([]AudioFeatures{
+	saturation, err := FeaturesToImageColors([]Features{
 		{RMS: 1, Flatness: 0.05, LowEnergy: 1, BassEnergy: 1, Bandwidth: 20, ZeroCrossingRate: 0.01},
 		{RMS: 1, Flatness: 0.95, LowEnergy: 1, BassEnergy: 1, Bandwidth: 2000, ZeroCrossingRate: 0.8},
 	}, 2, 1, PaletteNatural)
@@ -193,16 +193,16 @@ func TestFeaturesToImageColorsBrightnessAndHue(t *testing.T) {
 }
 
 func TestRotateImageColorsHue(t *testing.T) {
-	src := []ImageColor{{X: 7, Y: 11, R: 255, G: 0, B: 0}}
+	src := []visualization.ImageColor{{X: 7, Y: 11, R: 255, G: 0, B: 0}}
 
-	green := RotateImageColorsHue(src, 120)[0]
+	green := visualization.RotateImageColorsHue(src, 120)[0]
 	if green.X != 7 || green.Y != 11 || green.R != 0 || green.G != 255 || green.B != 0 {
 		t.Fatalf("red +120 hue = %+v; want green at original coordinates", green)
 	}
 
-	blue := RotateImageColorsHue(src, 240)[0]
-	negativeBlue := RotateImageColorsHue(src, -120)[0]
-	wantBlue := ImageColor{X: 7, Y: 11, R: 0, G: 0, B: 255}
+	blue := visualization.RotateImageColorsHue(src, 240)[0]
+	negativeBlue := visualization.RotateImageColorsHue(src, -120)[0]
+	wantBlue := visualization.ImageColor{X: 7, Y: 11, R: 0, G: 0, B: 255}
 	if blue != wantBlue {
 		t.Fatalf("red +240 hue = %+v; want %+v", blue, wantBlue)
 	}
@@ -211,55 +211,55 @@ func TestRotateImageColorsHue(t *testing.T) {
 	}
 
 	for _, degrees := range []float64{0, 360, -360, 720} {
-		got := RotateImageColorsHue(src, degrees)[0]
+		got := visualization.RotateImageColorsHue(src, degrees)[0]
 		if got != src[0] {
 			t.Fatalf("red %+v hue = %+v; want original %+v", degrees, got, src[0])
 		}
 	}
 
-	plus180 := RotateImageColorsHue(src, 180)[0]
-	minus180 := RotateImageColorsHue(src, -180)[0]
+	plus180 := visualization.RotateImageColorsHue(src, 180)[0]
+	minus180 := visualization.RotateImageColorsHue(src, -180)[0]
 	if plus180 != minus180 {
 		t.Fatalf("red +180 hue = %+v; red -180 hue = %+v; want equal", plus180, minus180)
 	}
 }
 
 func TestThemeImageColors(t *testing.T) {
-	src := []ImageColor{{X: 7, Y: 11, R: 100, G: 150, B: 200}}
-	_, srcSaturation, srcValue := rgbToHSV(src[0].R, src[0].G, src[0].B)
+	src := []visualization.ImageColor{{X: 7, Y: 11, R: 100, G: 150, B: 200}}
+	_, srcSaturation, srcValue := visualization.RGBToHSV(src[0].R, src[0].G, src[0].B)
 
 	themes := []struct {
 		name               string
-		theme              ColorTheme
+		theme              visualization.ColorTheme
 		minValue           float64
 		maxValue           float64
 		minSaturationRatio float64
 	}{
-		{name: "light", theme: ThemeLight, minValue: 0.93, maxValue: 1, minSaturationRatio: 0.30},
-		{name: "dark", theme: ThemeDark, minValue: 0.08, maxValue: 0.60, minSaturationRatio: 0.75},
+		{name: "light", theme: visualization.ThemeLight, minValue: 0.93, maxValue: 1, minSaturationRatio: 0.30},
+		{name: "dark", theme: visualization.ThemeDark, minValue: 0.08, maxValue: 0.60, minSaturationRatio: 0.75},
 	}
 
 	for _, tt := range themes {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ThemeImageColors(src, tt.theme)
+			got := visualization.ThemeImageColors(src, tt.theme)
 			if len(got) != 1 {
 				t.Fatalf("got %d colors; want 1", len(got))
 			}
 			if got[0].X != src[0].X || got[0].Y != src[0].Y {
 				t.Fatalf("theme changed source coordinates: %+v", got[0])
 			}
-			srcHue, _, _ := rgbToHSV(src[0].R, src[0].G, src[0].B)
-			gotHue, gotSaturation, gotValue := rgbToHSV(got[0].R, got[0].G, got[0].B)
+			srcHue, _, _ := visualization.RGBToHSV(src[0].R, src[0].G, src[0].B)
+			gotHue, gotSaturation, gotValue := visualization.RGBToHSV(got[0].R, got[0].G, got[0].B)
 			if hueDistance(srcHue, gotHue) > 1 {
 				t.Fatalf("%s theme changed hue too much: source=%v got=%v color=%+v", tt.name, srcHue, gotHue, got[0])
 			}
 			if gotValue < tt.minValue || gotValue > tt.maxValue {
 				t.Fatalf("%s theme value = %v; want in [%v, %v]", tt.name, gotValue, tt.minValue, tt.maxValue)
 			}
-			if tt.theme == ThemeLight && gotValue <= srcValue {
+			if tt.theme == visualization.ThemeLight && gotValue <= srcValue {
 				t.Fatalf("light theme should raise value: source=%v got=%v", srcValue, gotValue)
 			}
-			if tt.theme == ThemeDark && gotValue >= srcValue {
+			if tt.theme == visualization.ThemeDark && gotValue >= srcValue {
 				t.Fatalf("dark theme should lower value: source=%v got=%v", srcValue, gotValue)
 			}
 			if gotSaturation < tt.minSaturationRatio*srcSaturation {
@@ -271,7 +271,7 @@ func TestThemeImageColors(t *testing.T) {
 
 func TestBuildImageColorsFromWAVDeterministic(t *testing.T) {
 	path := writeTempWAV(t, 8000, 1, pcmFromFloat(sineSamples(64, 8000, 440)))
-	opts := AudioOptions{Width: 4, Height: 4, Mono: true, FFTSize: 16, HopSize: 8, Palette: PaletteNatural}
+	opts := Options{Width: 4, Height: 4, Mono: true, FFTSize: 16, HopSize: 8, Palette: PaletteNatural}
 	a, err := BuildImageColorsFromWAV(path, opts)
 	if err != nil {
 		t.Fatalf("BuildImageColorsFromWAV returned error: %v", err)
@@ -288,36 +288,6 @@ func TestBuildImageColorsFromWAVDeterministic(t *testing.T) {
 	}
 	if !reflect.DeepEqual(a, b) {
 		t.Fatal("wav virtual source colors are not deterministic")
-	}
-}
-
-func TestLoadSourceImageMatchesLoadImage(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "source.png")
-	img := image.NewRGBA(image.Rect(0, 0, 2, 1))
-	img.Set(0, 0, color.RGBA{R: 10, G: 20, B: 30, A: 255})
-	img.Set(1, 0, color.RGBA{R: 40, G: 50, B: 60, A: 255})
-	f, err := os.Create(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := png.Encode(f, img); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	fromImage, err := LoadImage(path)
-	if err != nil {
-		t.Fatalf("LoadImage returned error: %v", err)
-	}
-	fromSource, err := LoadSource(path, SourceOptions{Width: 8, Height: 8, Audio: AudioOptions{Palette: PaletteNatural}})
-	if err != nil {
-		t.Fatalf("LoadSource returned error: %v", err)
-	}
-	if !reflect.DeepEqual(fromImage, fromSource) {
-		t.Fatalf("LoadSource image path differs from LoadImage: %v != %v", fromSource, fromImage)
 	}
 }
 
@@ -530,6 +500,7 @@ func TestCLIHelpShowsCanonicalSwitches(t *testing.T) {
 
 func runPix(args ...string) (string, error) {
 	cmd := exec.Command("go", append([]string{"run", "./cmd/pix"}, args...)...)
+	cmd.Dir = filepath.Join("..", "..")
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
@@ -629,12 +600,12 @@ func noiseSamples(n int) []float64 {
 func pcmFromFloat(samples []float64) []int16 {
 	ret := make([]int16, len(samples))
 	for i, s := range samples {
-		ret[i] = int16(clamp(s, -1, 1) * 32767)
+		ret[i] = int16(visualization.Clamp(s, -1, 1) * 32767)
 	}
 	return ret
 }
 
-func finiteFeature(f AudioFeatures) bool {
+func finiteFeature(f Features) bool {
 	vals := []float64{
 		f.Time,
 		f.RMS,
@@ -657,11 +628,11 @@ func finiteFeature(f AudioFeatures) bool {
 	return true
 }
 
-func colorSum(c ImageColor) int {
+func colorSum(c visualization.ImageColor) int {
 	return int(c.R) + int(c.G) + int(c.B)
 }
 
-func rgbSaturation(c ImageColor) int {
+func rgbSaturation(c visualization.ImageColor) int {
 	minV := minInt(int(c.R), int(c.G), int(c.B))
 	maxV := maxInt(int(c.R), int(c.G), int(c.B))
 	return maxV - minV

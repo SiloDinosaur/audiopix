@@ -1,4 +1,4 @@
-package pix
+package placement
 
 import (
 	"math/bits"

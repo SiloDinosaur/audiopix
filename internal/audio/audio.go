@@ -1,4 +1,4 @@
-package pix
+package audio
 
 import (
 	"encoding/binary"
@@ -9,32 +9,34 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yurivish/pix/internal/visualization"
 )
 
-type AudioPalette string
+type Palette string
 
 const (
-	PaletteNatural AudioPalette = "natural"
+	PaletteNatural Palette = "natural"
 )
 
-type AudioOptions struct {
+type Options struct {
 	Width, Height int
 	Offset        time.Duration
 	Duration      time.Duration
 	Mono          bool
 	FFTSize       int
 	HopSize       int
-	Palette       AudioPalette
+	Palette       Palette
 }
 
-type AudioData struct {
+type Data struct {
 	Samples      []float64
 	SampleRate   int
 	Channels     int
 	SourceFrames int
 }
 
-type AudioFeatures struct {
+type Features struct {
 	Time             float64
 	RMS              float64
 	Centroid         float64
@@ -49,7 +51,7 @@ type AudioFeatures struct {
 	HighEnergy       float64
 }
 
-func (opts AudioOptions) withDefaults(width, height int) AudioOptions {
+func (opts Options) withDefaults(width, height int) Options {
 	if opts.Width == 0 {
 		opts.Width = width
 	}
@@ -68,12 +70,12 @@ func (opts AudioOptions) withDefaults(width, height int) AudioOptions {
 	return opts
 }
 
-func BuildImageColorsFromWAV(filepath string, opts AudioOptions) ([]ImageColor, error) {
+func BuildImageColorsFromWAV(filepath string, opts Options) ([]visualization.ImageColor, error) {
 	opts = opts.withDefaults(opts.Width, opts.Height)
 	if opts.Width <= 0 || opts.Height <= 0 {
 		return nil, fmt.Errorf("wav input requires positive width and height")
 	}
-	if err := validateAudioOptions(opts); err != nil {
+	if err := validateOptions(opts); err != nil {
 		return nil, err
 	}
 	audio, err := DecodeWAVFileWithOptions(filepath, opts.Mono)
@@ -84,29 +86,29 @@ func BuildImageColorsFromWAV(filepath string, opts AudioOptions) ([]ImageColor, 
 	if err != nil {
 		return nil, err
 	}
-	features, err := ExtractAudioFeatures(audio, opts)
+	features, err := ExtractFeatures(audio, opts)
 	if err != nil {
 		return nil, err
 	}
-	features = ResampleAudioFeatures(features, opts.Width*opts.Height)
+	features = ResampleFeatures(features, opts.Width*opts.Height)
 	return FeaturesToImageColors(features, opts.Width, opts.Height, opts.Palette)
 }
 
-func DecodeWAVFile(filepath string) (AudioData, error) {
+func DecodeWAVFile(filepath string) (Data, error) {
 	return DecodeWAVFileWithOptions(filepath, true)
 }
 
-func DecodeWAVFileWithOptions(filepath string, mono bool) (AudioData, error) {
+func DecodeWAVFileWithOptions(filepath string, mono bool) (Data, error) {
 	data, err := os.ReadFile(filepath)
 	if err != nil {
-		return AudioData{}, fmt.Errorf("error opening wav file: %w", err)
+		return Data{}, fmt.Errorf("error opening wav file: %w", err)
 	}
 	return DecodeWAV(data, mono)
 }
 
-func DecodeWAV(data []byte, mono bool) (AudioData, error) {
+func DecodeWAV(data []byte, mono bool) (Data, error) {
 	if len(data) < 12 || string(data[0:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
-		return AudioData{}, fmt.Errorf("invalid wav file")
+		return Data{}, fmt.Errorf("invalid wav file")
 	}
 
 	var fmtChunk []byte
@@ -116,7 +118,7 @@ func DecodeWAV(data []byte, mono bool) (AudioData, error) {
 		size := int(binary.LittleEndian.Uint32(data[off+4 : off+8]))
 		off += 8
 		if size < 0 || off+size > len(data) {
-			return AudioData{}, fmt.Errorf("invalid wav chunk size")
+			return Data{}, fmt.Errorf("invalid wav chunk size")
 		}
 		chunk := data[off : off+size]
 		switch id {
@@ -131,10 +133,10 @@ func DecodeWAV(data []byte, mono bool) (AudioData, error) {
 		}
 	}
 	if len(fmtChunk) < 16 {
-		return AudioData{}, fmt.Errorf("wav file missing fmt chunk")
+		return Data{}, fmt.Errorf("wav file missing fmt chunk")
 	}
 	if len(sampleBytes) == 0 {
-		return AudioData{}, fmt.Errorf("wav file has no audio data")
+		return Data{}, fmt.Errorf("wav file has no audio data")
 	}
 
 	format := binary.LittleEndian.Uint16(fmtChunk[0:2])
@@ -143,25 +145,25 @@ func DecodeWAV(data []byte, mono bool) (AudioData, error) {
 	blockAlign := int(binary.LittleEndian.Uint16(fmtChunk[12:14]))
 	bitsPerSample := int(binary.LittleEndian.Uint16(fmtChunk[14:16]))
 	if channels <= 0 || sampleRate <= 0 {
-		return AudioData{}, fmt.Errorf("wav file has invalid channel count or sample rate")
+		return Data{}, fmt.Errorf("wav file has invalid channel count or sample rate")
 	}
 	if format != 1 && format != 3 {
-		return AudioData{}, fmt.Errorf("unsupported wav format %d", format)
+		return Data{}, fmt.Errorf("unsupported wav format %d", format)
 	}
 	bytesPerSample := (bitsPerSample + 7) / 8
 	if format == 1 && bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32 {
-		return AudioData{}, fmt.Errorf("unsupported pcm bit depth %d", bitsPerSample)
+		return Data{}, fmt.Errorf("unsupported pcm bit depth %d", bitsPerSample)
 	}
 	if format == 3 && bitsPerSample != 32 && bitsPerSample != 64 {
-		return AudioData{}, fmt.Errorf("unsupported float bit depth %d", bitsPerSample)
+		return Data{}, fmt.Errorf("unsupported float bit depth %d", bitsPerSample)
 	}
 	if blockAlign < channels*bytesPerSample || blockAlign == 0 {
-		return AudioData{}, fmt.Errorf("invalid wav block alignment")
+		return Data{}, fmt.Errorf("invalid wav block alignment")
 	}
 
 	frames := len(sampleBytes) / blockAlign
 	if frames == 0 {
-		return AudioData{}, fmt.Errorf("wav file has no complete frames")
+		return Data{}, fmt.Errorf("wav file has no complete frames")
 	}
 	outChannels := channels
 	if mono {
@@ -174,7 +176,7 @@ func DecodeWAV(data []byte, mono bool) (AudioData, error) {
 		for ch := 0; ch < channels; ch++ {
 			start := base + ch*bytesPerSample
 			if start+bytesPerSample > len(sampleBytes) {
-				return AudioData{}, fmt.Errorf("truncated wav sample data")
+				return Data{}, fmt.Errorf("truncated wav sample data")
 			}
 			sample := decodeWAVSample(sampleBytes[start:start+bytesPerSample], format, bitsPerSample)
 			if mono {
@@ -184,13 +186,13 @@ func DecodeWAV(data []byte, mono bool) (AudioData, error) {
 			}
 		}
 		if mono {
-			samples[frame] = clamp(sum/float64(channels), -1, 1)
+			samples[frame] = visualization.Clamp(sum/float64(channels), -1, 1)
 		}
 	}
-	return AudioData{Samples: samples, SampleRate: sampleRate, Channels: outChannels, SourceFrames: frames}, nil
+	return Data{Samples: samples, SampleRate: sampleRate, Channels: outChannels, SourceFrames: frames}, nil
 }
 
-func ExtractAudioFeatures(audio AudioData, opts AudioOptions) ([]AudioFeatures, error) {
+func ExtractFeatures(audio Data, opts Options) ([]Features, error) {
 	if len(audio.Samples) == 0 {
 		return nil, fmt.Errorf("audio contains no samples")
 	}
@@ -200,7 +202,7 @@ func ExtractAudioFeatures(audio AudioData, opts AudioOptions) ([]AudioFeatures, 
 	if audio.Channels <= 0 {
 		return nil, fmt.Errorf("audio has invalid channel count")
 	}
-	if err := validateAudioOptions(opts); err != nil {
+	if err := validateOptions(opts); err != nil {
 		return nil, err
 	}
 
@@ -212,7 +214,7 @@ func ExtractAudioFeatures(audio AudioData, opts AudioOptions) ([]AudioFeatures, 
 		nFrames = 1 + int(math.Ceil(float64(nSamples-frameSize)/float64(hopSize)))
 	}
 	window := hannWindow(frameSize)
-	features := make([]AudioFeatures, nFrames)
+	features := make([]Features, nFrames)
 	for frame := 0; frame < nFrames; frame++ {
 		start := frame * hopSize
 		buf := make([]complex128, frameSize)
@@ -244,23 +246,23 @@ func ExtractAudioFeatures(audio AudioData, opts AudioOptions) ([]AudioFeatures, 
 	return features, nil
 }
 
-func ResampleAudioFeatures(features []AudioFeatures, n int) []AudioFeatures {
+func ResampleFeatures(features []Features, n int) []Features {
 	if n <= 0 || len(features) == 0 {
 		return nil
 	}
 	if len(features) == n {
-		ret := make([]AudioFeatures, n)
+		ret := make([]Features, n)
 		copy(ret, features)
 		return ret
 	}
 	if len(features) == 1 {
-		ret := make([]AudioFeatures, n)
+		ret := make([]Features, n)
 		for i := range ret {
 			ret[i] = features[0]
 		}
 		return ret
 	}
-	ret := make([]AudioFeatures, n)
+	ret := make([]Features, n)
 	scale := float64(len(features)-1) / float64(n-1)
 	for i := range ret {
 		pos := float64(i) * scale
@@ -275,7 +277,7 @@ func ResampleAudioFeatures(features []AudioFeatures, n int) []AudioFeatures {
 	return ret
 }
 
-func FeaturesToImageColors(features []AudioFeatures, width, height int, palette AudioPalette) ([]ImageColor, error) {
+func FeaturesToImageColors(features []Features, width, height int, palette Palette) ([]visualization.ImageColor, error) {
 	if width <= 0 || height <= 0 {
 		return nil, fmt.Errorf("width and height must be positive")
 	}
@@ -289,15 +291,15 @@ func FeaturesToImageColors(features []AudioFeatures, width, height int, palette 
 		return nil, fmt.Errorf("unknown audio palette %q", palette)
 	}
 
-	rms := values(features, func(f AudioFeatures) float64 { return f.RMS })
-	flatness := values(features, func(f AudioFeatures) float64 { return f.Flatness })
-	bandwidth := values(features, func(f AudioFeatures) float64 { return f.Bandwidth })
-	rolloff := values(features, func(f AudioFeatures) float64 { return f.Rolloff })
-	zcr := values(features, func(f AudioFeatures) float64 { return f.ZeroCrossingRate })
+	rms := values(features, func(f Features) float64 { return f.RMS })
+	flatness := values(features, func(f Features) float64 { return f.Flatness })
+	bandwidth := values(features, func(f Features) float64 { return f.Bandwidth })
+	rolloff := values(features, func(f Features) float64 { return f.Rolloff })
+	zcr := values(features, func(f Features) float64 { return f.ZeroCrossingRate })
 	low := values(features, featureLowEnergy)
-	lowMid := values(features, func(f AudioFeatures) float64 { return f.LowMidEnergy })
-	mid := values(features, func(f AudioFeatures) float64 { return f.MidEnergy })
-	high := values(features, func(f AudioFeatures) float64 { return f.HighEnergy })
+	lowMid := values(features, func(f Features) float64 { return f.LowMidEnergy })
+	mid := values(features, func(f Features) float64 { return f.MidEnergy })
+	high := values(features, func(f Features) float64 { return f.HighEnergy })
 	rmsNorm := normalizer(rms)
 	flatNorm := normalizer(flatness)
 	bandwidthNorm := normalizer(bandwidth)
@@ -308,7 +310,7 @@ func FeaturesToImageColors(features []AudioFeatures, width, height int, palette 
 	midNorm := normalizer(mid)
 	highNorm := normalizer(high)
 
-	colors := make([]ImageColor, width*height)
+	colors := make([]visualization.ImageColor, width*height)
 	for i, f := range features {
 		x, y := i%width, i/width
 		l := lowNorm(featureLowEnergy(f))
@@ -321,7 +323,7 @@ func FeaturesToImageColors(features []AudioFeatures, width, height int, palette 
 			{hue: 95, weight: m},
 			{hue: 205, weight: h},
 		})
-		centroid := clamp(f.Centroid/16000, 0, 1)
+		centroid := visualization.Clamp(f.Centroid/16000, 0, 1)
 		centroidHue := 25 + 180*centroid
 		hue := centroidHue
 		if ok {
@@ -331,16 +333,16 @@ func FeaturesToImageColors(features []AudioFeatures, width, height int, palette 
 			})
 		}
 		noise := 0.55*flatNorm(f.Flatness) + 0.25*zcrNorm(f.ZeroCrossingRate) + 0.20*bandwidthNorm(f.Bandwidth)
-		saturation := clamp(0.92-0.72*noise, 0.12, 1)
+		saturation := visualization.Clamp(0.92-0.72*noise, 0.12, 1)
 		sparkle := 0.65*highNorm(f.HighEnergy) + 0.35*rolloffNorm(f.Rolloff)
-		value := clamp(0.08+0.84*rmsNorm(f.RMS)+0.08*sparkle, 0, 1)
-		r, g, bb := hsvToRGB(hue, saturation, value)
-		colors[i] = ImageColor{x, y, r, g, bb}
+		value := visualization.Clamp(0.08+0.84*rmsNorm(f.RMS)+0.08*sparkle, 0, 1)
+		r, g, bb := visualization.HSVToRGB(hue, saturation, value)
+		colors[i] = visualization.ImageColor{x, y, r, g, bb}
 	}
 	return colors, nil
 }
 
-func validateAudioOptions(opts AudioOptions) error {
+func validateOptions(opts Options) error {
 	if opts.FFTSize <= 0 || opts.HopSize <= 0 {
 		return fmt.Errorf("audio fft size and hop size must be positive")
 	}
@@ -353,9 +355,9 @@ func validateAudioOptions(opts AudioOptions) error {
 	return nil
 }
 
-func cropAudio(audio AudioData, offset, duration time.Duration) (AudioData, error) {
+func cropAudio(audio Data, offset, duration time.Duration) (Data, error) {
 	if offset < 0 || duration < 0 {
-		return AudioData{}, fmt.Errorf("audio offset and duration must not be negative")
+		return Data{}, fmt.Errorf("audio offset and duration must not be negative")
 	}
 	channels := audio.Channels
 	if channels <= 0 {
@@ -364,7 +366,7 @@ func cropAudio(audio AudioData, offset, duration time.Duration) (AudioData, erro
 	nFrames := len(audio.Samples) / channels
 	startFrame := int(offset.Seconds() * float64(audio.SampleRate))
 	if startFrame > nFrames {
-		return AudioData{}, fmt.Errorf("audio offset is beyond the end of the file")
+		return Data{}, fmt.Errorf("audio offset is beyond the end of the file")
 	}
 	endFrame := nFrames
 	if duration > 0 {
@@ -374,14 +376,14 @@ func cropAudio(audio AudioData, offset, duration time.Duration) (AudioData, erro
 		}
 	}
 	if startFrame >= endFrame {
-		return AudioData{}, fmt.Errorf("selected audio range is empty")
+		return Data{}, fmt.Errorf("selected audio range is empty")
 	}
 	audio.Samples = audio.Samples[startFrame*channels : endFrame*channels]
 	audio.SourceFrames = endFrame - startFrame
 	return audio, nil
 }
 
-func monoSampleAt(audio AudioData, frame int) float64 {
+func monoSampleAt(audio Data, frame int) float64 {
 	if audio.Channels == 1 {
 		return audio.Samples[frame]
 	}
@@ -407,23 +409,23 @@ func sampleSign(v float64) int {
 func decodeWAVSample(b []byte, format uint16, bits int) float64 {
 	if format == 3 {
 		if bits == 32 {
-			return clamp(float64(math.Float32frombits(binary.LittleEndian.Uint32(b))), -1, 1)
+			return visualization.Clamp(float64(math.Float32frombits(binary.LittleEndian.Uint32(b))), -1, 1)
 		}
-		return clamp(math.Float64frombits(binary.LittleEndian.Uint64(b)), -1, 1)
+		return visualization.Clamp(math.Float64frombits(binary.LittleEndian.Uint64(b)), -1, 1)
 	}
 	switch bits {
 	case 8:
-		return clamp((float64(b[0])-128)/128, -1, 1)
+		return visualization.Clamp((float64(b[0])-128)/128, -1, 1)
 	case 16:
-		return clamp(float64(int16(binary.LittleEndian.Uint16(b)))/32768, -1, 1)
+		return visualization.Clamp(float64(int16(binary.LittleEndian.Uint16(b)))/32768, -1, 1)
 	case 24:
 		v := int32(b[0]) | int32(b[1])<<8 | int32(b[2])<<16
 		if v&0x800000 != 0 {
 			v |= ^0xffffff
 		}
-		return clamp(float64(v)/8388608, -1, 1)
+		return visualization.Clamp(float64(v)/8388608, -1, 1)
 	case 32:
-		return clamp(float64(int32(binary.LittleEndian.Uint32(b)))/2147483648, -1, 1)
+		return visualization.Clamp(float64(int32(binary.LittleEndian.Uint32(b)))/2147483648, -1, 1)
 	default:
 		return 0
 	}
@@ -441,7 +443,7 @@ func hannWindow(n int) []float64 {
 	return w
 }
 
-func spectrumFeatures(buf []complex128, sampleRate, start int, sumSq float64, frameSize int, zcr float64) AudioFeatures {
+func spectrumFeatures(buf []complex128, sampleRate, start int, sumSq float64, frameSize int, zcr float64) Features {
 	half := len(buf) / 2
 	sumMag, sumPower, weightedFreq, weightedFreqSq := 0.0, 0.0, 0.0, 0.0
 	logPower := 0.0
@@ -494,14 +496,14 @@ func spectrumFeatures(buf []complex128, sampleRate, start int, sumSq float64, fr
 	if half > 0 && sumPower > eps {
 		flatness = math.Exp(logPower/float64(half)) / (sumPower / float64(half))
 	}
-	return AudioFeatures{
+	return Features{
 		Time:             float64(start) / float64(sampleRate),
 		RMS:              math.Sqrt(sumSq / float64(frameSize)),
 		Centroid:         centroid,
 		Bandwidth:        bandwidth,
 		Rolloff:          rolloff,
-		ZeroCrossingRate: clamp(zcr, 0, 1),
-		Flatness:         clamp(flatness, 0, 1),
+		ZeroCrossingRate: visualization.Clamp(zcr, 0, 1),
+		Flatness:         visualization.Clamp(flatness, 0, 1),
 		LowEnergy:        low,
 		LowMidEnergy:     lowMid,
 		BassEnergy:       low,
@@ -539,8 +541,8 @@ func fft(a []complex128) {
 	}
 }
 
-func lerpFeature(a, b AudioFeatures, t float64) AudioFeatures {
-	return AudioFeatures{
+func lerpFeature(a, b Features, t float64) Features {
+	return Features{
 		Time:             lerp(a.Time, b.Time, t),
 		RMS:              lerp(a.RMS, b.RMS, t),
 		Centroid:         lerp(a.Centroid, b.Centroid, t),
@@ -558,7 +560,7 @@ func lerpFeature(a, b AudioFeatures, t float64) AudioFeatures {
 
 func lerp(a, b, t float64) float64 { return a + (b-a)*t }
 
-func values(features []AudioFeatures, get func(AudioFeatures) float64) []float64 {
+func values(features []Features, get func(Features) float64) []float64 {
 	ret := make([]float64, len(features))
 	for i, f := range features {
 		v := get(f)
@@ -589,11 +591,11 @@ func normalizer(vals []float64) func(float64) float64 {
 		if math.IsNaN(x) || math.IsInf(x, 0) {
 			return 0
 		}
-		return clamp((x-lo)/(hi-lo), 0, 1)
+		return visualization.Clamp((x-lo)/(hi-lo), 0, 1)
 	}
 }
 
-func featureLowEnergy(f AudioFeatures) float64 {
+func featureLowEnergy(f Features) float64 {
 	if f.LowEnergy != 0 {
 		return f.LowEnergy
 	}
@@ -638,30 +640,7 @@ func percentile(sorted []float64, p float64) float64 {
 	return lerp(sorted[i], sorted[i+1], t)
 }
 
-func hsvToRGB(h, s, v float64) (uint8, uint8, uint8) {
-	h = normalizeHue(h)
-	c := v * s
-	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
-	m := v - c
-	var r, g, b float64
-	switch {
-	case h < 60:
-		r, g, b = c, x, 0
-	case h < 120:
-		r, g, b = x, c, 0
-	case h < 180:
-		r, g, b = 0, c, x
-	case h < 240:
-		r, g, b = 0, x, c
-	case h < 300:
-		r, g, b = x, 0, c
-	default:
-		r, g, b = c, 0, x
-	}
-	return quantize(clamp(r+m, 0, 1)), quantize(clamp(g+m, 0, 1)), quantize(clamp(b+m, 0, 1))
-}
-
-func ParseAudioDuration(s string) (time.Duration, error) {
+func ParseDuration(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "0" || s == "0s" {
 		return 0, nil

@@ -1,4 +1,4 @@
-package pix
+package placement
 
 import (
 	"fmt"
@@ -7,6 +7,8 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+
+	"github.com/yurivish/pix/internal/visualization"
 )
 
 // A canvas represents a specific pixel-placed drawing
@@ -50,7 +52,7 @@ type SampledColor struct {
 	sortScore        float64
 }
 
-func SampleColors(src []ImageColor, nPixels int) []SampledColor {
+func SampleColors(src []visualization.ImageColor, nPixels int) []SampledColor {
 	nSrc, nDst := len(src), nPixels
 	ret := make([]SampledColor, nDst)
 	// center the hilbert curve in its power-of-2 bounding box so as

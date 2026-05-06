@@ -1,4 +1,4 @@
-package pix
+package placement
 
 // This file implements a zip tree:
 // https://arxiv.org/abs/1806.06726

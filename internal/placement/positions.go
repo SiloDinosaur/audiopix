@@ -1,4 +1,4 @@
-package pix
+package placement
 
 type posList struct {
 	rest  []Pos
@@ -44,7 +44,7 @@ func (p *posList) arbitrary() Pos {
 }
 
 /* for later, benchmark this first-less version:
-package pix
+package placement
 
 type posList struct {
 	rest []Pos

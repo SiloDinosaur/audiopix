@@ -1,4 +1,4 @@
-package pix
+package placement
 
 import (
 	"fmt"
@@ -33,84 +33,6 @@ func clamp(x, lo, hi float64) float64 {
 		return hi
 	}
 	return x
-}
-
-func normalizeHue(h float64) float64 {
-	h = math.Mod(h, 360)
-	if h < 0 {
-		h += 360
-	}
-	return h
-}
-
-// RotateImageColorsHue returns a copy of colors with RGB hue rotated in HSV space.
-func RotateImageColorsHue(colors []ImageColor, degrees float64) []ImageColor {
-	hueShift := normalizeHue(degrees)
-	ret := make([]ImageColor, len(colors))
-	for i, c := range colors {
-		h, s, v := rgbToHSV(c.R, c.G, c.B)
-		r, g, b := hsvToRGB(h+hueShift, s, v)
-		ret[i] = ImageColor{X: c.X, Y: c.Y, R: r, G: g, B: b}
-	}
-	return ret
-}
-
-type ColorTheme string
-
-const (
-	ThemeLight ColorTheme = "light"
-	ThemeDark  ColorTheme = "dark"
-)
-
-// ThemeImageColors returns a copy of colors adjusted to a light or dark HSV theme.
-func ThemeImageColors(colors []ImageColor, theme ColorTheme) []ImageColor {
-	ret := make([]ImageColor, len(colors))
-	for i, c := range colors {
-		h, s, v := rgbToHSV(c.R, c.G, c.B)
-		switch theme {
-		case ThemeLight:
-			s = clamp(0.35*s+0.02, 0, 1)
-			v = clamp(0.93+0.07*v, 0, 1)
-		case ThemeDark:
-			s = clamp(1.15*s, 0, 1)
-			v = clamp(0.08+0.52*v, 0, 1)
-		}
-		r, g, b := hsvToRGB(h, s, v)
-		ret[i] = ImageColor{
-			X: c.X,
-			Y: c.Y,
-			R: r,
-			G: g,
-			B: b,
-		}
-	}
-	return ret
-}
-
-func rgbToHSV(r, g, b uint8) (float64, float64, float64) {
-	rf, gf, bf := invQuantize(r), invQuantize(g), invQuantize(b)
-	max := math.Max(rf, math.Max(gf, bf))
-	min := math.Min(rf, math.Min(gf, bf))
-	delta := max - min
-
-	h := 0.0
-	switch {
-	case delta == 0:
-		h = 0
-	case max == rf:
-		h = 60 * math.Mod((gf-bf)/delta, 6)
-	case max == gf:
-		h = 60 * ((bf-rf)/delta + 2)
-	default:
-		h = 60 * ((rf-gf)/delta + 4)
-	}
-	h = normalizeHue(h)
-
-	s := 0.0
-	if max > 0 {
-		s = delta / max
-	}
-	return h, s, max
 }
 
 // Minimum and maximum values for OkLab's a and b parameters

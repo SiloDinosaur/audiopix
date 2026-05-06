@@ -1,4 +1,4 @@
-package pix
+package placement
 
 // Implementation of functions in this file based on
 // https://fgiesen.wordpress.com/2009/12/13/decoding-morton-codes/
@@ -6,26 +6,26 @@ package pix
 type MortonCode uint32
 
 func smoosh2(x MortonCode) uint32 {
-  x &= 0x09249249                  // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
-  x = (x ^ (x >> 2)) & 0x030c30c3  // x = ---- --98 ---- 76-- --54 ---- 32-- --10
-  x = (x ^ (x >> 4)) & 0x0300f00f  // x = ---- --98 ---- ---- 7654 ---- ---- 3210
-  x = (x ^ (x >> 8)) & 0xff0000ff  // x = ---- --98 ---- ---- ---- ---- 7654 3210
-  x = (x ^ (x >> 16)) & 0x000003ff // x = ---- ---- ---- ---- ---- --98 7654 3210
-  return uint32(x)
+	x &= 0x09249249                  // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
+	x = (x ^ (x >> 2)) & 0x030c30c3  // x = ---- --98 ---- 76-- --54 ---- 32-- --10
+	x = (x ^ (x >> 4)) & 0x0300f00f  // x = ---- --98 ---- ---- 7654 ---- ---- 3210
+	x = (x ^ (x >> 8)) & 0xff0000ff  // x = ---- --98 ---- ---- ---- ---- 7654 3210
+	x = (x ^ (x >> 16)) & 0x000003ff // x = ---- ---- ---- ---- ---- --98 7654 3210
+	return uint32(x)
 }
 
 // "Insert" two 0 bits after each of the 10 low bits of x
 func spread2(x uint32) MortonCode {
-  x &= 0x000003ff                  // x = ---- ---- ---- ---- ---- --98 7654 3210
-  x = (x ^ (x << 16)) & 0xff0000ff // x = ---- --98 ---- ---- ---- ---- 7654 3210
-  x = (x ^ (x << 8)) & 0x0300f00f  // x = ---- --98 ---- ---- 7654 ---- ---- 3210
-  x = (x ^ (x << 4)) & 0x030c30c3  // x = ---- --98 ---- 76-- --54 ---- 32-- --10
-  x = (x ^ (x << 2)) & 0x09249249  // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
-  return MortonCode(x)
+	x &= 0x000003ff                  // x = ---- ---- ---- ---- ---- --98 7654 3210
+	x = (x ^ (x << 16)) & 0xff0000ff // x = ---- --98 ---- ---- ---- ---- 7654 3210
+	x = (x ^ (x << 8)) & 0x0300f00f  // x = ---- --98 ---- ---- 7654 ---- ---- 3210
+	x = (x ^ (x << 4)) & 0x030c30c3  // x = ---- --98 ---- 76-- --54 ---- 32-- --10
+	x = (x ^ (x << 2)) & 0x09249249  // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
+	return MortonCode(x)
 }
 
 func mortonCode(x, y, z uint8) MortonCode {
-  return (spread2(uint32(z)) << 2) + (spread2(uint32(y)) << 1) + spread2(uint32(x))
+	return (spread2(uint32(z)) << 2) + (spread2(uint32(y)) << 1) + spread2(uint32(x))
 }
 
 func mortonX(code MortonCode) uint8 { return uint8(smoosh2(code >> 0)) }
@@ -53,21 +53,21 @@ func gtMortonZ(a, b MortonCode) bool { return a|zMask > b|zMask } // a.z > b.z
 
 // "Insert" a 0 bit after each of the 16 low bits of x
 func spread1(x uint32) uint32 {
-  x &= 0x0000ffff                 // x = ---- ---- ---- ---- fedc ba98 7654 3210
-  x = (x ^ (x << 8)) & 0x00ff00ff // x = ---- ---- fedc ba98 ---- ---- 7654 3210
-  x = (x ^ (x << 4)) & 0x0f0f0f0f // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
-  x = (x ^ (x << 2)) & 0x33333333 // x = --fe --dc --ba --98 --76 --54 --32 --10
-  x = (x ^ (x << 1)) & 0x55555555 // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
-  return x
+	x &= 0x0000ffff                 // x = ---- ---- ---- ---- fedc ba98 7654 3210
+	x = (x ^ (x << 8)) & 0x00ff00ff // x = ---- ---- fedc ba98 ---- ---- 7654 3210
+	x = (x ^ (x << 4)) & 0x0f0f0f0f // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
+	x = (x ^ (x << 2)) & 0x33333333 // x = --fe --dc --ba --98 --76 --54 --32 --10
+	x = (x ^ (x << 1)) & 0x55555555 // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
+	return x
 }
 
 func smoosh1(x uint32) uint32 {
-  x &= 0x55555555                 // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
-  x = (x ^ (x >> 1)) & 0x33333333 // x = --fe --dc --ba --98 --76 --54 --32 --10
-  x = (x ^ (x >> 2)) & 0x0f0f0f0f // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
-  x = (x ^ (x >> 4)) & 0x00ff00ff // x = ---- ---- fedc ba98 ---- ---- 7654 3210
-  x = (x ^ (x >> 8)) & 0x0000ffff // x = ---- ---- ---- ---- fedc ba98 7654 3210
-  return x
+	x &= 0x55555555                 // x = -f-e -d-c -b-a -9-8 -7-6 -5-4 -3-2 -1-0
+	x = (x ^ (x >> 1)) & 0x33333333 // x = --fe --dc --ba --98 --76 --54 --32 --10
+	x = (x ^ (x >> 2)) & 0x0f0f0f0f // x = ---- fedc ---- ba98 ---- 7654 ---- 3210
+	x = (x ^ (x >> 4)) & 0x00ff00ff // x = ---- ---- fedc ba98 ---- ---- 7654 3210
+	x = (x ^ (x >> 8)) & 0x0000ffff // x = ---- ---- ---- ---- fedc ba98 7654 3210
+	return x
 }
 
 func interleave2(x, y uint32) uint32    { return (spread1(y) << 1) + spread1(x) }

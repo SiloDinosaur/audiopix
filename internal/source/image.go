@@ -1,4 +1,4 @@
-package pix
+package source
 
 import (
 	"errors"
@@ -11,10 +11,12 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/yurivish/pix/internal/visualization"
 )
 
 // Returns `ImageColor`s from the source in row major order.
-func LoadImage(path string) ([]ImageColor, error) {
+func LoadImage(path string) ([]visualization.ImageColor, error) {
 	var img *image.RGBA
 	var err error
 	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
@@ -27,22 +29,17 @@ func LoadImage(path string) ([]ImageColor, error) {
 	}
 	sz := img.Bounds().Max
 	index := 0
-	colors := make([]ImageColor, sz.X*sz.Y)
+	colors := make([]visualization.ImageColor, sz.X*sz.Y)
 	pix, stride := img.Pix, img.Stride
 	for y := 0; y < sz.Y; y++ {
 		for x := 0; x < sz.X; x++ {
 			i := y*stride + x*4
 			r, g, b := pix[i], pix[i+1], pix[i+2]
-			colors[index] = ImageColor{x, y, r, g, b}
+			colors[index] = visualization.ImageColor{X: x, Y: y, R: r, G: g, B: b}
 			index++
 		}
 	}
 	return colors, nil
-}
-
-type ImageColor struct {
-	X, Y    int
-	R, G, B uint8
 }
 
 func loadRGBA(filepath string) (*image.RGBA, error) {

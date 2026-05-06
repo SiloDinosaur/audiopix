@@ -11,7 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yurivish/pix"
+	"github.com/yurivish/pix/internal/audio"
+	"github.com/yurivish/pix/internal/placement"
+	"github.com/yurivish/pix/internal/source"
+	"github.com/yurivish/pix/internal/visualization"
 )
 
 func main() {
@@ -47,7 +50,7 @@ func main() {
 	flag.IntVar(&variations, "variations", 1, "number of outputs to generate for each set of input parameters")
 	flag.IntVar(&variations, "v", 1, "number of outputs to generate for each set of input parameters")
 
-	audioPalette := flag.String("audio-palette", string(pix.PaletteNatural), "audio palette for wav input")
+	audioPalette := flag.String("audio-palette", string(audio.PaletteNatural), "audio palette for wav input")
 	audioOffset := flag.String("audio-offset", "0s", "start offset for wav input, as a Go duration or seconds")
 	audioDuration := flag.String("audio-duration", "0s", "duration to read from wav input, as a Go duration or seconds; 0 uses the rest of the file")
 	audioMono := flag.Bool("audio-mono", true, "downmix wav input to mono")
@@ -122,20 +125,20 @@ func main() {
 	ext := path.Ext(file)
 	name := file[:len(file)-len(ext)]
 
-	offset, err := pix.ParseAudioDuration(*audioOffset)
+	offset, err := audio.ParseDuration(*audioOffset)
 	if err != nil {
 		log.Fatalf("failed to parse --audio-offset: %v", err)
 	}
-	duration, err := pix.ParseAudioDuration(*audioDuration)
+	duration, err := audio.ParseDuration(*audioDuration)
 	if err != nil {
 		log.Fatalf("failed to parse --audio-duration: %v", err)
 	}
 
 	w, h := width, height
-	sourceOpts := pix.SourceOptions{
+	sourceOpts := source.Options{
 		Width:  w,
 		Height: h,
-		Audio: pix.AudioOptions{
+		Audio: audio.Options{
 			Width:    w,
 			Height:   h,
 			Offset:   offset,
@@ -143,20 +146,20 @@ func main() {
 			Mono:     *audioMono,
 			FFTSize:  *audioFFTSize,
 			HopSize:  *audioHopSize,
-			Palette:  pix.AudioPalette(*audioPalette),
+			Palette:  audio.Palette(*audioPalette),
 		},
 	}
-	img, err := pix.LoadSource(input, sourceOpts)
+	img, err := source.Load(input, sourceOpts)
 	if err != nil {
 		log.Fatalf("failed to load source: %v", err)
 	}
 	if *hue != 0 {
-		img = pix.RotateImageColorsHue(img, *hue)
+		img = visualization.RotateImageColorsHue(img, *hue)
 	}
 	if *light {
-		img = pix.ThemeImageColors(img, pix.ThemeLight)
+		img = visualization.ThemeImageColors(img, visualization.ThemeLight)
 	} else if *dark {
-		img = pix.ThemeImageColors(img, pix.ThemeDark)
+		img = visualization.ThemeImageColors(img, visualization.ThemeDark)
 	}
 
 	numVariations := variations
@@ -193,7 +196,7 @@ func main() {
 	}
 
 	// Sample colors from the image
-	colors := pix.SampleColors(img, (100-*whitePercent)*w*h/100)
+	colors := placement.SampleColors(img, (100-*whitePercent)*w*h/100)
 
 	// Generate variations
 	variation := 0
@@ -201,15 +204,15 @@ func main() {
 		for _, random := range randomSweep {
 			for _, reverse := range reverseSweep {
 				// sort once per unique set of sort parameters
-				sortedColors := make([]pix.SampledColor, len(colors))
+				sortedColors := make([]placement.SampledColor, len(colors))
 				copy(sortedColors, colors)
-				sortOpts := pix.SortOptions{
+				sortOpts := placement.SortOptions{
 					Image:   float64(image),
 					Color:   float64(100 - image),
 					Random:  float64(random),
 					Reverse: reverse,
 				}
-				pix.SortBySimilarity(sortedColors, sortOpts)
+				placement.SortBySimilarity(sortedColors, sortOpts)
 
 				for _, seeds := range seedsSweep {
 					if len(seeds) == 0 {
@@ -231,7 +234,7 @@ func main() {
 							variationTag = "." + strconv.Itoa(variation)
 						}
 
-						opts := pix.Options{
+						opts := placement.Options{
 							Width:            w,
 							Height:           h,
 							Seeds:            seeds,
@@ -390,8 +393,8 @@ Help:
 }
 
 type Work struct {
-	colors []pix.SampledColor
-	opts   pix.Options
+	colors []placement.SampledColor
+	opts   placement.Options
 	status string
 }
 
@@ -399,7 +402,7 @@ func worker(id int, jobs <-chan Work, results chan<- bool) {
 	for j := range jobs {
 		colors, opts := j.colors, j.opts
 		fmt.Print(j.status)
-		err := pix.Place(colors, opts)
+		err := placement.Place(colors, opts)
 		if err != nil {
 			fmt.Printf("!!! error placing pixels: %v\n", err)
 			results <- false

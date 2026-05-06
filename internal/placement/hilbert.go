@@ -1,4 +1,4 @@
-package pix
+package placement
 
 // Translated from this public domain C++ library:
 // https://github.com/rawrunprotected/hilbert_curves

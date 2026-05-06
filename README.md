@@ -279,9 +279,11 @@ go run ./cmd/pix -i song.wav -o test.png
 Useful files:
 
 - [`cmd/pix/main.go`](cmd/pix/main.go) contains the CLI flags and render loop.
-- [`audio.go`](audio.go) handles WAV decoding, FFT analysis, and audio-to-color mapping.
-- [`pix.go`](pix.go) runs the placement pipeline.
-- [`image.go`](image.go) loads PNG/JPG sources and image URLs.
+- [`internal/audio`](internal/audio) handles WAV decoding, FFT analysis, and audio-to-color mapping.
+- [`internal/source`](internal/source) loads WAV, PNG, JPG, JPEG, and image URL inputs into source colors.
+- [`internal/visualization`](internal/visualization) owns source color types and color theme transforms.
+- [`internal/placement`](internal/placement) runs the crystallization and pixel placement pipeline.
+- [`docs/planning`](docs/planning) contains design notes and migration plans.
 
 ## Contributing
 
