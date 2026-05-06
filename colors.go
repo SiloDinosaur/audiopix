@@ -55,6 +55,38 @@ func RotateImageColorsHue(colors []ImageColor, degrees float64) []ImageColor {
 	return ret
 }
 
+type ColorTheme string
+
+const (
+	ThemeLight ColorTheme = "light"
+	ThemeDark  ColorTheme = "dark"
+)
+
+// ThemeImageColors returns a copy of colors adjusted to a light or dark HSV theme.
+func ThemeImageColors(colors []ImageColor, theme ColorTheme) []ImageColor {
+	ret := make([]ImageColor, len(colors))
+	for i, c := range colors {
+		h, s, v := rgbToHSV(c.R, c.G, c.B)
+		switch theme {
+		case ThemeLight:
+			s = clamp(0.35*s+0.02, 0, 1)
+			v = clamp(0.93+0.07*v, 0, 1)
+		case ThemeDark:
+			s = clamp(1.15*s, 0, 1)
+			v = clamp(0.08+0.52*v, 0, 1)
+		}
+		r, g, b := hsvToRGB(h, s, v)
+		ret[i] = ImageColor{
+			X: c.X,
+			Y: c.Y,
+			R: r,
+			G: g,
+			B: b,
+		}
+	}
+	return ret
+}
+
 func rgbToHSV(r, g, b uint8) (float64, float64, float64) {
 	rf, gf, bf := invQuantize(r), invQuantize(g), invQuantize(b)
 	max := math.Max(rf, math.Max(gf, bf))

@@ -35,6 +35,8 @@ func main() {
 
 	whitePercent := flag.Int("white-percent", 0, "percentage (0 to 100) determining the area left white on the canvas")
 	hue := flag.Float64("hue", 0, "hue rotation in degrees applied to generated source colors")
+	light := flag.Bool("light", false, "apply a bright pastel color theme")
+	dark := flag.Bool("dark", false, "apply a dark vivid color theme")
 	color := flag.Int("color-sort", 90, "magic parameter (0 to 100) determining sort order. A higher value will give more weight to color similarity, while lower values will better preserve proximity in the source image.")
 	random := flag.Int("random", 0, "randomness weight for similarity sort")
 	reverse := flag.Bool("reverse", true, "reverse sort order")
@@ -95,6 +97,9 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	if *light && *dark {
+		log.Fatalf("--light and --dark cannot be used together")
+	}
 
 	image := new(int)
 	*image = 100 - *color
@@ -147,6 +152,11 @@ func main() {
 	}
 	if *hue != 0 {
 		img = pix.RotateImageColorsHue(img, *hue)
+	}
+	if *light {
+		img = pix.ThemeImageColors(img, pix.ThemeLight)
+	} else if *dark {
+		img = pix.ThemeImageColors(img, pix.ThemeDark)
 	}
 
 	numVariations := variations
@@ -355,6 +365,8 @@ Audio range:
 Output and batches:
       --white-percent <0-100>  Percentage of the canvas to leave white. Default 0.
       --hue <degrees>          Rotate source colors in HSV hue space. Default 0.
+      --light[=true|false]     Apply a very light pastel-white color theme. Default false.
+      --dark[=true|false]      Apply a dark vivid color theme. Default false.
   -v, --variations <int>       Number of outputs per parameter set. Default 1.
   -c, --compress <-3|-2|-1|0>  PNG compression level. Default 0.
 

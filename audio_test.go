@@ -224,6 +224,51 @@ func TestRotateImageColorsHue(t *testing.T) {
 	}
 }
 
+func TestThemeImageColors(t *testing.T) {
+	src := []ImageColor{{X: 7, Y: 11, R: 100, G: 150, B: 200}}
+	_, srcSaturation, srcValue := rgbToHSV(src[0].R, src[0].G, src[0].B)
+
+	themes := []struct {
+		name               string
+		theme              ColorTheme
+		minValue           float64
+		maxValue           float64
+		minSaturationRatio float64
+	}{
+		{name: "light", theme: ThemeLight, minValue: 0.93, maxValue: 1, minSaturationRatio: 0.30},
+		{name: "dark", theme: ThemeDark, minValue: 0.08, maxValue: 0.60, minSaturationRatio: 0.75},
+	}
+
+	for _, tt := range themes {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ThemeImageColors(src, tt.theme)
+			if len(got) != 1 {
+				t.Fatalf("got %d colors; want 1", len(got))
+			}
+			if got[0].X != src[0].X || got[0].Y != src[0].Y {
+				t.Fatalf("theme changed source coordinates: %+v", got[0])
+			}
+			srcHue, _, _ := rgbToHSV(src[0].R, src[0].G, src[0].B)
+			gotHue, gotSaturation, gotValue := rgbToHSV(got[0].R, got[0].G, got[0].B)
+			if hueDistance(srcHue, gotHue) > 1 {
+				t.Fatalf("%s theme changed hue too much: source=%v got=%v color=%+v", tt.name, srcHue, gotHue, got[0])
+			}
+			if gotValue < tt.minValue || gotValue > tt.maxValue {
+				t.Fatalf("%s theme value = %v; want in [%v, %v]", tt.name, gotValue, tt.minValue, tt.maxValue)
+			}
+			if tt.theme == ThemeLight && gotValue <= srcValue {
+				t.Fatalf("light theme should raise value: source=%v got=%v", srcValue, gotValue)
+			}
+			if tt.theme == ThemeDark && gotValue >= srcValue {
+				t.Fatalf("dark theme should lower value: source=%v got=%v", srcValue, gotValue)
+			}
+			if gotSaturation < tt.minSaturationRatio*srcSaturation {
+				t.Fatalf("%s theme collapsed saturation: source=%v got=%v color=%+v", tt.name, srcSaturation, gotSaturation, got[0])
+			}
+		})
+	}
+}
+
 func TestBuildImageColorsFromWAVDeterministic(t *testing.T) {
 	path := writeTempWAV(t, 8000, 1, pcmFromFloat(sineSamples(64, 8000, 440)))
 	opts := AudioOptions{Width: 4, Height: 4, Mono: true, FFTSize: 16, HopSize: 8, Palette: PaletteNatural}
@@ -371,6 +416,36 @@ func TestCLIStandardSwitchesGeneratePNG(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "light theme",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+					"--light",
+				}
+			},
+		},
+		{
+			name: "dark theme",
+			args: func(wavPath, outPath string) []string {
+				return []string{
+					"--input", wavPath,
+					"--width", "8",
+					"--height", "8",
+					"--output", outPath,
+					"--audio-fft-size", "16",
+					"--audio-hop-size", "8",
+					"--random-seed", "1",
+					"--dark",
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -410,6 +485,28 @@ func TestCLIRejectsOldSingleDashLongFlags(t *testing.T) {
 	}
 }
 
+func TestCLIRejectsConflictingColorThemes(t *testing.T) {
+	wavPath := writeTempWAV(t, 8000, 1, pcmFromFloat(sineSamples(128, 8000, 440)))
+	outPath := filepath.Join(t.TempDir(), "out.png")
+
+	output, err := runPix(
+		"--input", wavPath,
+		"--width", "8",
+		"--height", "8",
+		"--output", outPath,
+		"--audio-fft-size", "16",
+		"--audio-hop-size", "8",
+		"--light",
+		"--dark",
+	)
+	if err == nil {
+		t.Fatalf("pix accepted conflicting color themes\n%s", output)
+	}
+	if !strings.Contains(output, "--light and --dark cannot be used together") {
+		t.Fatalf("color theme rejection output did not explain conflict:\n%s", output)
+	}
+}
+
 func TestCLIHelpShowsCanonicalSwitches(t *testing.T) {
 	for _, arg := range []string{"-h", "--help"} {
 		t.Run(arg, func(t *testing.T) {
@@ -417,12 +514,12 @@ func TestCLIHelpShowsCanonicalSwitches(t *testing.T) {
 			if err != nil {
 				t.Fatalf("pix help failed: %v\n%s", err, output)
 			}
-			for _, want := range []string{"-i, --input", "-o, --output", "--audio-offset", "--color-sort", "--hue"} {
+			for _, want := range []string{"-i, --input", "-o, --output", "--audio-offset", "--color-sort", "--hue", "--light", "--dark"} {
 				if !strings.Contains(output, want) {
 					t.Fatalf("help output missing %q:\n%s", want, output)
 				}
 			}
-			for _, old := range []string{"-in", "-out", "-audio-offset", "-colorsort"} {
+			for _, old := range []string{"-in", "-out", "-audio-offset", "-colorsort", "--lightness"} {
 				if helpContainsOldFlag(output, old) {
 					t.Fatalf("help output still contains old flag %q:\n%s", old, output)
 				}
@@ -568,6 +665,14 @@ func rgbSaturation(c ImageColor) int {
 	minV := minInt(int(c.R), int(c.G), int(c.B))
 	maxV := maxInt(int(c.R), int(c.G), int(c.B))
 	return maxV - minV
+}
+
+func hueDistance(a, b float64) float64 {
+	d := math.Abs(a - b)
+	if d > 180 {
+		return 360 - d
+	}
+	return d
 }
 
 func minInt(vals ...int) int {

@@ -96,6 +96,13 @@ Leave 15% of the canvas white:
 pix -i song.wav --white-percent 15 -o airy.png
 ```
 
+Apply a dark or light color theme:
+
+```sh
+pix -i song.wav --dark -o dark.png
+pix -i song.wav --light -o light.png
+```
+
 Create square cover art:
 
 ```sh
@@ -184,6 +191,8 @@ wants to become.
 | --- | --- | --- |
 | `--white-percent <0-100>` | `0` | Percentage of the output canvas to leave white by sampling fewer source colors. |
 | `--hue <degrees>` | `0` | Rotate loaded source colors in HSV hue space before sampling. Values wrap around 360 degrees, so `360`, `-360`, and `0` are equivalent. |
+| `--light[=true\|false]` | `false` | Apply a very light pastel-white color theme before sampling. Cannot be combined with `--dark`. |
+| `--dark[=true\|false]` | `false` | Apply a dark vivid color theme before sampling. Cannot be combined with `--light`. |
 | `-v`, `--variations <int>` | `1` | Number of outputs to generate for each selected parameter set. |
 | `-c`, `--compress <-3|-2|-1|0>` | `0` | PNG compression level. `0` is default compression, `-1` is no compression, `-2` is best speed, and `-3` is best compression. |
 
