@@ -11,6 +11,7 @@ type Options struct {
 	Seeds            []int
 	Output           string
 	CompressionLevel png.CompressionLevel
+	BlackAndWhite    bool
 }
 
 func Place(colors []SampledColor, opts Options) error {
@@ -39,5 +40,5 @@ func Place(colors []SampledColor, opts Options) error {
 		outPath = "out.png"
 	}
 	// fmt.Println("saving", outPath)
-	return canvas.SaveImage(outPath, opts.CompressionLevel)
+	return canvas.SaveImage(outPath, opts.CompressionLevel, opts.BlackAndWhite)
 }

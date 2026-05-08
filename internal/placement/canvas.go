@@ -206,7 +206,7 @@ func (c *Canvas) Place(x SampledColor) {
 	c.PlaceAt(code, targetPos)
 }
 
-func (c *Canvas) ImageData() []uint8 {
+func (c *Canvas) ImageData(blackAndWhite bool) []uint8 {
 	// create a new buffer with an alpha channel then copy data over
 	nPixels := c.w * c.h
 	data := make([]uint8, 4*nPixels)
@@ -221,6 +221,10 @@ func (c *Canvas) ImageData() []uint8 {
 				// note: we do round-trip through srgb -> linear srgb -> oklab -> linear rgb -> srgb.
 				// this handles the general case when placed colors do not correspond to a source image.
 				data[idst], data[idst+1], data[idst+2] = okLabCodeToRgb(code)
+				if blackAndWhite {
+					gray := grayscale(data[idst], data[idst+1], data[idst+2])
+					data[idst], data[idst+1], data[idst+2] = gray, gray, gray
+				}
 				data[idst+3] = 255
 			}
 		}
@@ -228,8 +232,12 @@ func (c *Canvas) ImageData() []uint8 {
 	return data
 }
 
-func (c *Canvas) SaveImage(path string, compressionLevel png.CompressionLevel) error {
-	data, w, h := c.ImageData(), c.w, c.h
+func grayscale(r, g, b uint8) uint8 {
+	return uint8((299*uint32(r) + 587*uint32(g) + 114*uint32(b) + 500) / 1000)
+}
+
+func (c *Canvas) SaveImage(path string, compressionLevel png.CompressionLevel, blackAndWhite bool) error {
+	data, w, h := c.ImageData(blackAndWhite), c.w, c.h
 	r := image.Rectangle{image.Point{0, 0}, image.Point{w, h}}
 
 	f, err := os.Create(path)

@@ -103,6 +103,12 @@ pix -i song.wav --dark -o dark.png
 pix -i song.wav --light -o light.png
 ```
 
+Render the final image in black and white:
+
+```sh
+pix -i song.wav --bw -o bw.png
+```
+
 Create square cover art:
 
 ```sh
@@ -193,6 +199,7 @@ wants to become.
 | `--hue <degrees>` | `0` | Rotate loaded source colors in HSV hue space before sampling. Values wrap around 360 degrees, so `360`, `-360`, and `0` are equivalent. |
 | `--light[=true\|false]` | `false` | Apply a very light pastel-white color theme before sampling. Cannot be combined with `--dark`. |
 | `--dark[=true\|false]` | `false` | Apply a dark vivid color theme before sampling. Cannot be combined with `--light`. |
+| `--bw[=true\|false]` | `false` | Make the final image black and white. |
 | `-v`, `--variations <int>` | `1` | Number of outputs to generate for each selected parameter set. |
 | `-c`, `--compress <-3|-2|-1|0>` | `0` | PNG compression level. `0` is default compression, `-1` is no compression, `-2` is best speed, and `-3` is best compression. |
 

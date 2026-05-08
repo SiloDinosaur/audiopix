@@ -40,6 +40,7 @@ func main() {
 	hue := flag.Float64("hue", 0, "hue rotation in degrees applied to generated source colors")
 	light := flag.Bool("light", false, "apply a bright pastel color theme")
 	dark := flag.Bool("dark", false, "apply a dark vivid color theme")
+	bw := flag.Bool("bw", false, "make the final image black and white")
 	color := flag.Int("color-sort", 90, "magic parameter (0 to 100) determining sort order. A higher value will give more weight to color similarity, while lower values will better preserve proximity in the source image.")
 	random := flag.Int("random", 0, "randomness weight for similarity sort")
 	reverse := flag.Bool("reverse", true, "reverse sort order")
@@ -241,6 +242,7 @@ func main() {
 							Sort:             sortOpts,
 							RandomSeed:       *seed + int64(variation),
 							CompressionLevel: compressionLevel,
+							BlackAndWhite:    *bw,
 							Output:           path.Join(dir, name+variationTag+ext),
 						}
 
@@ -370,6 +372,7 @@ Output and batches:
       --hue <degrees>          Rotate source colors in HSV hue space. Default 0.
       --light[=true|false]     Apply a very light pastel-white color theme. Default false.
       --dark[=true|false]      Apply a dark vivid color theme. Default false.
+      --bw[=true|false]        Make the final image black and white. Default false.
   -v, --variations <int>       Number of outputs per parameter set. Default 1.
   -c, --compress <-3|-2|-1|0>  PNG compression level. Default 0.
 
